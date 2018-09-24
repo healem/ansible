@@ -1681,14 +1681,14 @@ class PyVmomiHelper(PyVmomi):
                                             vim.TaskInfo.State.error]:
             time.sleep(1)
         if search_res.info.result is None:
-            raise RuntimeError("No valid disk vmdk image found")
+            raise RuntimeError("No valid disk vmdk image found for {}".format(vmdk_path))
         target_folder_path = "[" + datastore_name + "]" + " " + vmdk_folder + '/'
         for result in search_res.info.result:
             for f in getattr(result, 'file'):
                 if f.path == vmdk_filename and \
                    result.folderPath == target_folder_path:
                     return f
-        raise RuntimeError("No vmdk file found")
+        raise RuntimeError("No vmdk file found at {} for vmdk_path {}".format(target_folder_path, vmdk_path))
 
     def add_existing_vmdk(self, vm_obj, expected_disk_spec, diskspec, scsi_ctl):
         """
