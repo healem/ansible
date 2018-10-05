@@ -37,6 +37,8 @@ automerge: True
 files:
   .github/BOTMETA.yml:
     labels: botmeta
+    # Changes to BOTMETA MUST always be reviewed by Core Team
+    support: core
   $modules/cloud/amazon/:
     ignored: erydo seiffert simplesteph
   $modules/cloud/amazon/aws_api_gateway.py: willthames
@@ -99,6 +101,7 @@ files:
   $modules/cloud/dimensiondata/dimensiondata_network.py: tintoy
   $modules/cloud/docker/:
     ignored: ThomasSteinbach
+    notified: felixfontein
   $modules/cloud/docker/docker_container.py: $team_ansible felixfontein
   $modules/cloud/docker/docker_image.py: $team_ansible
   $modules/cloud/docker/docker_image_facts.py: $team_ansible
@@ -132,14 +135,18 @@ files:
   $modules/cloud/vmware/_vsphere_guest.py: dagwieers
   $modules/cloud/vultr/: $team_vultr
   $modules/cloud/webfaction/: quentinsf
-  $modules/clustering/k8s/: chouseknecht maxamillion fabianvf flaper87 willthames
+  $modules/clustering/k8s/:
+    maintainers: chouseknecht maxamillion fabianvf flaper87 willthames
+    labels: k8s
   $modules/clustering/k8s/_kubernetes.py: supertom
   $modules/clustering/openshift/: chouseknecht maxamillion fabianvf flaper87
   $modules/commands/command.py: $team_ansible
   $modules/commands/raw.py: $team_ansible
   $modules/commands/script.py: $team_ansible
   $modules/commands/shell.py: $team_ansible
-  $modules/crypto/: Spredzy
+  $modules/crypto/:
+    maintainers: Spredzy
+    notified: felixfontein
   $modules/crypto/acme/: resmo felixfontein
   $modules/database/influxdb/: kamsz
   $modules/database/mssql/mssql_db.py: Jmainguy kenichi-ogawa-1988
@@ -305,7 +312,10 @@ files:
     ignored: erydo
   $modules/storage/infinidat/: GR360RY vmalloc
   $modules/storage/netapp/: $team_netapp
-  $modules/storage/purestorage/: sdodsley
+  $modules/storage/purestorage/:
+    maintainers: $team_purestorage
+    labels: pure_storage
+  $modules/storage/glusterfs/: devyanikota
   $modules/system/at.py: $team_ansible
   $modules/system/authorized_key.py: $team_ansible
   $modules/system/facter.py: $team_ansible
@@ -454,13 +464,16 @@ files:
     labels: cloudstack
   $module_utils/crypto.py:
     maintainers: Spredzy
+    notified: felixfontein
   $module_utils/docker_common.py:
     maintainers: $team_ansible dariko felixfontein jwitko kassiansun tbouvet
   $module_utils/ipa.py:
     maintainers: $team_ipa
   $module_utils/k8s:
     maintainers: chouseknecht maxamillion fabianvf flaper87 willthames
-    labels: clustering
+    labels:
+      - clustering
+      - k8s
   $module_utils/keycloak.py:
     maintainers: eikef
   $module_utils/manageiq.py:
@@ -475,8 +488,11 @@ files:
     labels: networking
   $module_utils/network/a10:
     maintainers: ericchou1 mischapeters
-  $module_utils/network/aci:
+  $module_utils/network/aci: &aci
     maintainers: $team_aci
+    labels:
+    - aci
+    - networking
   $module_utils/network/aireos:
     maintainers: jmighion
   $module_utils/network/aos:
@@ -527,8 +543,11 @@ files:
     maintainers: paulquack
   $module_utils/network/junos:
     support: network
-  $module_utils/network/meraki:
+  $module_utils/network/meraki: &meraki
     maintainers: $team_meraki
+    labels:
+      - meraki
+      - networking
   $module_utils/network/netconf:
     support: network
     maintainers: $team_networking
@@ -545,6 +564,8 @@ files:
     maintainers: $team_onyx
   $module_utils/network/ordnance:
     maintainers: alexanderturner djh00t
+  $module_utils/network/panos:
+    maintainers: ivanbojer jtschichold shinmog
   $module_utils/network/routeros:
     maintainers: heuels
   $module_utils/network/slxos:
@@ -572,6 +593,9 @@ files:
   $module_utils/remote_management/ucs:
     maintainers: $team_ucs
     labels: ucs
+  $module_utils/pure.py:
+    maintainers: $team_purestorage
+    labels: pure_storage
   $module_utils/netapp:
     maintainers: $team_netapp
   $module_utils/vultr.py: &vultr
@@ -848,6 +872,13 @@ files:
     support: core
   lib/ansible/plugins/inventory/ini.py:
     support: core
+  lib/ansible/plugins/inventory/k8s.py:
+    support: community
+    maintainers: chouseknecht maxamillion fabianvf flaper87 willthames
+    labels: k8s
+  lib/ansible/plugins/inventory/openshift.py:
+    support: community
+    maintainers: chouseknecht maxamillion fabianvf flaper87 willthames
   lib/ansible/plugins/inventory/openstack.py:
     maintainers: $team_openstack
     keywords:
@@ -855,7 +886,6 @@ files:
       - inventory
     labels:
       - cloud
-  lib/ansible/plugins/inventory/netbox.py: sieben
   lib/ansible/plugins/inventory/scaleway.py: *scaleway
   lib/ansible/plugins/inventory/vultr.py: *vultr
   lib/ansible/plugins/inventory/yaml.py:
@@ -877,6 +907,10 @@ files:
     labels: community
   lib/ansible/plugins/lookup/cyberarkpassword.py:
     notified: cyberark-bizdev
+  lib/ansible/plugins/lookup/k8s.py:
+    support: community
+    maintainers: chouseknecht maxamillion fabianvf flaper87 willthames
+    labels: k8s
   lib/ansible/plugins/lookup/nios:
     support: core
     maintainers: $team_networking sganesh-infoblox
@@ -892,6 +926,9 @@ files:
     support: network
     maintainers: $team_networking
     labels: networking
+  lib/ansible/plugins/lookup/rabbitmq.py:
+    maintainers: Im0
+    support: community
   lib/ansible/plugins/netconf/sros.py:
     maintainers: wisotzky $team_networking
     labels: networking
@@ -997,16 +1034,8 @@ files:
     maintainers:
       - samccann
       - gundalow
-  docs/docsite/rst/scenario_guides/guide_aci.rst:
-    maintainers: $team_aci
-    labels:
-    - aci
-    - networking
-  docs/docsite/rst/dev_guide/developing_modules_general_aci.rst:
-    maintainers: $team_aci
-    labels:
-     - aci
-     - networkings
+  docs/docsite/rst/scenario_guides/guide_aci.rst: *aci
+  docs/docsite/rst/dev_guide/developing_modules_general_aci.rst: *aci
 ###############################
 # 'test' is a component path, then 'test' label will be automatically added
   test/runner/:
@@ -1015,14 +1044,8 @@ files:
     notified: mattclay
   test/utils/shippable/:
     notified: mattclay
-  test/integration/targets/aci:
-    maintainers: $team_aci
-    labels:
-      - networking
-  test/integration/targets/meraki:
-    maintainers: $team_meraki
-    labels:
-      - networking
+  test/integration/targets/aci: *aci
+  test/integration/targets/meraki: *meraki
   test/integration/targets/nxos:
     maintainers: $team_nxos
     labels:
@@ -1037,6 +1060,9 @@ files:
       - remote_management
   test/legacy/:
     notified: mattclay
+  test/legacy/scaleway:
+    <<: *scaleway
+    support: community
   test/units/modules/network:
     maintainers: $team_networking
     labels: networking
@@ -1076,10 +1102,11 @@ macros:
   team_onyx: samerd
   team_openstack: emonty omgjlk juliakreger rcarrillocruz shrews thingee dagnello
   team_openswitch: Qalthos gdpak
+  team_purestorage: sdodsley
   team_rabbitmq: chrishoffman manuel-sousa hyperized
   team_redfish: jose-delarosa mraineri tomasg2012 billdodd
   team_rhn: alikins barnabycourt flossware vritant
-  team_scaleway: sieben hekonsek Spredzy abarbare anthony25
+  team_scaleway: sieben hekonsek Spredzy abarbare anthony25 pilou-
   team_tower: ghjm jlaska matburt wwitzel3 simfarm ryanpetrello rooftopcellist AlanCoding
   team_ucs: dsoper2 johnamcdonough SDBrett vallard vvb dagwieers
   team_vmware: Akasurde dav1x warthog9
