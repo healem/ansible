@@ -1643,7 +1643,8 @@ class PyVmomiHelper(PyVmomi):
             vmdk_filename = os.path.basename(vmdk_fullpath)
             vmdk_folder = os.path.dirname(vmdk_fullpath)
         except (IndexError, AttributeError) as e:
-            raise RuntimeError("Bad path for filename disk vmdk image")
+            self.module.fail_json(msg="Bad path given for vmdk: {}"
+                                  .format(vmdk_path))
 
         return (datastore_name, vmdk_fullpath, vmdk_filename, vmdk_folder)
 
@@ -1653,7 +1654,7 @@ class PyVmomiHelper(PyVmomi):
 
             [datastore_name] /path/to/file.vmdk
 
-        Returns vsphere file object or raises RuntimeError
+        Returns vsphere file object
         """
         datastore_name, vmdk_fullpath, vmdk_filename, vmdk_folder \
             = self.vmdk_disk_path_split(vmdk_path)
@@ -1661,7 +1662,12 @@ class PyVmomiHelper(PyVmomi):
         datastore = self.cache.find_obj(self.content,
                                         [vim.Datastore],
                                         datastore_name)
+        if datastore is None:
+            self.module.fail_json(msg="Unable to find datastore where existing vmdks live.  Given datastore: {}"
+                                  .format(datastore_name))
+
         browser = datastore.browser
+
         detail_query = vim.host.DatastoreBrowser.FileInfo.Details(
             fileOwner=True,
             fileSize=True,
@@ -1681,14 +1687,17 @@ class PyVmomiHelper(PyVmomi):
                                             vim.TaskInfo.State.error]:
             time.sleep(1)
         if search_res.info.result is None:
-            raise RuntimeError("No valid disk vmdk image found")
+            self.module.fail_json(msg="No valid disk vmdk image found matching: {}"
+                                  .format(vmdk_filename))
+
         target_folder_path = "[" + datastore_name + "]" + " " + vmdk_folder + '/'
         for result in search_res.info.result:
             for f in getattr(result, 'file'):
                 if f.path == vmdk_filename and \
                    result.folderPath == target_folder_path:
                     return f
-        raise RuntimeError("No vmdk file found")
+        self.module.fail_json(msg="No valid disk vmdk image found matching: {}"
+                                  .format(vmdk_filename))
 
     def add_existing_vmdk(self, vm_obj, expected_disk_spec, diskspec, scsi_ctl):
         """
@@ -1696,6 +1705,7 @@ class PyVmomiHelper(PyVmomi):
         information and adds the correct spec to self.configspec.deviceChange.
         """
         filename = expected_disk_spec['filename']
+
         # if this is a new disk, or the disk filenames are different
         if (vm_obj and diskspec.device.backing.fileName != filename) or (vm_obj is None):
             vmdk_file = self.find_vmdk(expected_disk_spec['filename'])
@@ -1703,10 +1713,13 @@ class PyVmomiHelper(PyVmomi):
                 = self.vmdk_disk_path_split(expected_disk_spec['filename'])
             diskspec.device.backing.fileName = expected_disk_spec['filename']
             diskspec.device.backing.diskMode = 'persistent'
+
             # convert filesize to KB, on python2 this needs to be a long type
             if sys.version_info > (3,):
-                long = int
-            diskspec.device.capacityInKB = long(vmdk_file.fileSize / 1024)
+                diskspec.device.capacityInKB = int(vmdk_file.fileSize / 1024)
+            else:
+                diskspec.device.capacityInKB = long(vmdk_file.fileSize / 1024)
+
             diskspec.device.key = -1
             self.change_detected = True
             self.configspec.deviceChange.append(diskspec)
