@@ -786,9 +786,9 @@ def command_integration_filtered(args, targets, all_targets):
                         make_dirs(test_dir)
 
                     if target.script_path:
-                        command_integration_script(args, target)
+                        command_integration_script(args, target, test_dir)
                     else:
-                        command_integration_role(args, target, start_at_task)
+                        command_integration_role(args, target, start_at_task, test_dir)
                         start_at_task = None
 
                     end_time = time.time()
@@ -1010,18 +1010,19 @@ def run_setup_targets(args, test_dir, target_names, targets_dict, targets_execut
             make_dirs(test_dir)
 
         if target.script_path:
-            command_integration_script(args, target)
+            command_integration_script(args, target, test_dir)
         else:
-            command_integration_role(args, target, None)
+            command_integration_role(args, target, None, test_dir)
 
         targets_executed.add(target_name)
 
 
-def integration_environment(args, target, cmd):
+def integration_environment(args, target, cmd, test_dir):
     """
     :type args: IntegrationConfig
     :type target: IntegrationTarget
     :type cmd: list[str]
+    :type test_dir: str
     :rtype: dict[str, str]
     """
     env = ansible_environment(args)
@@ -1035,6 +1036,7 @@ def integration_environment(args, target, cmd):
         JUNIT_OUTPUT_DIR=os.path.abspath('test/results/junit'),
         ANSIBLE_CALLBACK_WHITELIST='junit',
         ANSIBLE_TEST_CI=args.metadata.ci_provider,
+        OUTPUT_DIR=test_dir,
     )
 
     if args.debug_strategy:
@@ -1056,10 +1058,11 @@ def integration_environment(args, target, cmd):
     return env
 
 
-def command_integration_script(args, target):
+def command_integration_script(args, target, test_dir):
     """
     :type args: IntegrationConfig
     :type target: IntegrationTarget
+    :type test_dir: str
     """
     display.info('Running %s integration test script' % target.name)
 
@@ -1068,17 +1071,18 @@ def command_integration_script(args, target):
     if args.verbosity:
         cmd.append('-' + ('v' * args.verbosity))
 
-    env = integration_environment(args, target, cmd)
+    env = integration_environment(args, target, cmd, test_dir)
     cwd = target.path
 
     intercept_command(args, cmd, target_name=target.name, env=env, cwd=cwd)
 
 
-def command_integration_role(args, target, start_at_task):
+def command_integration_role(args, target, start_at_task, test_dir):
     """
     :type args: IntegrationConfig
     :type target: IntegrationTarget
     :type start_at_task: str | None
+    :type test_dir: str
     """
     display.info('Running %s integration test role' % target.name)
 
@@ -1138,7 +1142,7 @@ def command_integration_role(args, target, start_at_task):
         if args.verbosity:
             cmd.append('-' + ('v' * args.verbosity))
 
-        env = integration_environment(args, target, cmd)
+        env = integration_environment(args, target, cmd, test_dir)
         cwd = 'test/integration'
 
         env['ANSIBLE_ROLES_PATH'] = os.path.abspath('test/integration/targets')
@@ -1406,6 +1410,40 @@ def common_integration_filter(args, targets, exclude):
             display.warning('Excluding tests marked "%s" which require --allow-unstable or prefixing with "unstable/": %s'
                             % (skip.rstrip('/'), ', '.join(skipped)))
 
+    # only skip a Windows test if using --windows and all the --windows versions are defined in the aliases as skip/windows/%s
+    if isinstance(args, WindowsIntegrationConfig) and args.windows:
+        all_skipped = []
+        not_skipped = []
+
+        for target in targets:
+            if "skip/windows/" not in target.aliases:
+                continue
+
+            skip_valid = []
+            skip_missing = []
+            for version in args.windows:
+                if "skip/windows/%s/" % version in target.aliases:
+                    skip_valid.append(version)
+                else:
+                    skip_missing.append(version)
+
+            if skip_missing and skip_valid:
+                not_skipped.append((target.name, skip_valid, skip_missing))
+            elif skip_valid:
+                all_skipped.append(target.name)
+
+        if all_skipped:
+            exclude.extend(all_skipped)
+            skip_aliases = ["skip/windows/%s/" % w for w in args.windows]
+            display.warning('Excluding tests marked "%s" which are set to skip with --windows %s: %s'
+                            % ('", "'.join(skip_aliases), ', '.join(args.windows), ', '.join(all_skipped)))
+
+        if not_skipped:
+            for target, skip_valid, skip_missing in not_skipped:
+                # warn when failing to skip due to lack of support for skipping only some versions
+                display.warning('Including test "%s" which was marked to skip for --windows %s but not %s.'
+                                % (target, ', '.join(skip_valid), ', '.join(skip_missing)))
+
 
 def get_integration_local_filter(args, targets):
     """
@@ -1478,7 +1516,7 @@ def get_integration_docker_filter(args, targets):
 
     python_version = 2  # images are expected to default to python 2 unless otherwise specified
 
-    python_version = int(get_docker_completion().get(args.docker_raw).get('python', str(python_version)))
+    python_version = int(get_docker_completion().get(args.docker_raw, {}).get('python', str(python_version)))
 
     if args.python:  # specifying a numeric --python option overrides the default python
         if args.python.startswith('3'):
