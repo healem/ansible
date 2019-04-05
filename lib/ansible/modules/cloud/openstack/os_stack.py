@@ -20,7 +20,9 @@ module: os_stack
 short_description: Add/Remove Heat Stack
 extends_documentation_fragment: openstack
 version_added: "2.2"
-author: "Mathieu Bultel (matbu), Steve Baker (steveb)"
+author:
+  - "Mathieu Bultel (@matbu)"
+  - "Steve Baker (@steveb)"
 description:
    - Add or Remove a Stack to an OpenStack Heat
 options:
@@ -90,7 +92,7 @@ EXAMPLES = '''
 RETURN = '''
 id:
     description: Stack ID.
-    type: string
+    type: str
     sample: "97a3f543-8136-4570-920e-fd7605c989d6"
     returned: always
 
@@ -101,27 +103,27 @@ stack:
     contains:
         action:
             description: Action, could be Create or Update.
-            type: string
+            type: str
             sample: "CREATE"
         creation_time:
             description: Time when the action has been made.
-            type: string
+            type: str
             sample: "2016-07-05T17:38:12Z"
         description:
             description: Description of the Stack provided in the heat template.
-            type: string
+            type: str
             sample: "HOT template to create a new instance and networks"
         id:
             description: Stack ID.
-            type: string
+            type: str
             sample: "97a3f543-8136-4570-920e-fd7605c989d6"
         name:
             description: Name of the Stack
-            type: string
+            type: str
             sample: "test-stack"
         identifier:
             description: Identifier of the current Stack action.
-            type: string
+            type: str
             sample: "test-stack/97a3f543-8136-4570-920e-fd7605c989d6"
         links:
             description: Links to the current Stack.
@@ -179,6 +181,7 @@ def _update_stack(module, stack, cloud, sdk):
     try:
         stack = cloud.update_stack(
             module.params['name'],
+            tags=module.params['tag'],
             template_file=module.params['template'],
             environment_files=module.params['environment'],
             timeout=module.params['timeout'],
@@ -246,6 +249,14 @@ def main():
             if not stack:
                 stack = _create_stack(module, stack, cloud, sdk)
             else:
+                if module.params['tags']:
+                    from distutils.version import StrictVersion
+                    min_version = '0.28.0'
+                    if StrictVersion(sdk.version.__version__) < StrictVersion(min_version):
+                        module.warn("To update tags using os_stack module, the"
+                                    "installed version of the openstacksdk"
+                                    "library MUST be >={min_version}"
+                                    "".format(min_version=min_version))
                 stack = _update_stack(module, stack, cloud, sdk)
             changed = True
             module.exit_json(changed=changed,

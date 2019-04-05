@@ -514,7 +514,12 @@ def map_config_to_obj(want, module):
                 intf_type = get_interface_type(w['name'])
 
                 if intf_type in ['portchannel', 'ethernet']:
-                    if not interface_table.get('eth_mode'):
+                    mode = interface_table.get('eth_mode')
+                    if mode in ('access', 'trunk', 'dot1q-tunnel'):
+                        obj['mode'] = 'layer2'
+                    elif mode in ('routed', 'layer3'):
+                        obj['mode'] = 'layer3'
+                    else:
                         obj['mode'] = 'layer3'
 
                 if intf_type == 'ethernet':
@@ -524,11 +529,6 @@ def map_config_to_obj(want, module):
                     obj['mtu'] = interface_table.get('eth_mtu')
                     obj['duplex'] = interface_table.get('eth_duplex')
                     speed = interface_table.get('eth_speed')
-                    mode = interface_table.get('eth_mode')
-                    if mode in ('access', 'trunk'):
-                        obj['mode'] = 'layer2'
-                    elif mode in ('routed', 'layer3'):
-                        obj['mode'] = 'layer3'
 
                     command = 'show run interface {0}'.format(obj['name'])
                     body = execute_show_command(command, module)[0]
@@ -557,6 +557,7 @@ def map_config_to_obj(want, module):
                                                             'nxapibug'))
                     obj['description'] = str(attributes.get('description',
                                                             'nxapi_bug'))
+                    obj['mtu'] = interface_table.get('svi_mtu')
 
                     command = 'show run interface {0}'.format(obj['name'])
                     body = execute_show_command(command, module)[0]
@@ -578,11 +579,7 @@ def map_config_to_obj(want, module):
                     obj['name'] = normalize_interface(interface_table.get('interface'))
                     obj['admin_state'] = interface_table.get('admin_state')
                     obj['description'] = interface_table.get('desc')
-                    mode = interface_table.get('eth_mode')
-                    if mode == 'access':
-                        obj['mode'] = 'layer2'
-                    else:
-                        obj['mode'] = 'layer3'
+                    obj['mtu'] = interface_table.get('eth_mtu')
 
         objs.append(obj)
 
@@ -593,14 +590,15 @@ def check_declarative_intent_params(module, want):
     failed_conditions = []
     have_neighbors = None
     for w in want:
+        if w['interface_type']:
+            continue
         want_tx_rate = w.get('tx_rate')
         want_rx_rate = w.get('rx_rate')
         want_neighbors = w.get('neighbors')
+        if not (want_tx_rate or want_rx_rate or want_neighbors):
+            continue
 
         time.sleep(module.params['delay'])
-
-        if w['interface_type']:
-            return
 
         cmd = [{'command': 'show interface {0}'.format(w['name']), 'output': 'text'}]
 

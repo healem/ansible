@@ -62,7 +62,7 @@ options:
       description:
       - The VMware identification method by which the virtual machine will be identified.
       default: vm_name
-      choices: ['uuid', 'dns_name', 'inventory_path', 'vm_name']
+      choices: ['uuid', 'instance_uuid', 'dns_name', 'inventory_path', 'vm_name']
     vm_username:
       description:
       - The user to login-in to the virtual machine.
@@ -109,7 +109,7 @@ EXAMPLES = r'''
     username: "{{ vcenter_username }}"
     password: "{{ vcenter_password }}"
     datacenter: "{{ datacenter }}"
-    folder: /"{{datacenter}}"/vm
+    folder: "/{{datacenter}}/vm"
     vm_id: "{{ vm_name }}"
     vm_username: root
     vm_password: superSecret
@@ -128,7 +128,7 @@ EXAMPLES = r'''
     username: "{{ vcenter_username }}"
     password: "{{ vcenter_password }}"
     datacenter: "{{ datacenter }}"
-    folder: /"{{datacenter}}"/vm
+    folder: "/{{datacenter}}/vm"
     vm_id: NameOfVM
     vm_username: root
     vm_password: superSecret
@@ -145,7 +145,7 @@ EXAMPLES = r'''
     username: "{{ vcenter_username }}"
     password: "{{ vcenter_password }}"
     datacenter: "{{ datacenter }}"
-    folder: /"{{datacenter}}"/vm
+    folder: "/{{datacenter}}/vm"
     vm_id: "{{ vm_name }}"
     vm_username: sample
     vm_password: old_password
@@ -160,7 +160,7 @@ EXAMPLES = r'''
     password: "{{ vcenter_password }}"
     validate_certs: no
     datacenter: "{{ datacenter }}"
-    folder: /"{{datacenter}}"/vm
+    folder: "/{{datacenter}}/vm"
     vm_id: "{{ vm_name }}"
     vm_username: testUser
     vm_password: SuperSecretPassword
@@ -230,7 +230,8 @@ class VMwareShellManager(PyVmomi):
             vm = find_vm_by_id(self.content,
                                vm_id=module.params['vm_id'],
                                vm_id_type=module.params['vm_id_type'],
-                               datacenter=datacenter, cluster=cluster)
+                               datacenter=datacenter,
+                               cluster=cluster)
 
         if not vm:
             module.fail_json(msg='Unable to find virtual machine.')
@@ -291,14 +292,13 @@ class VMwareShellManager(PyVmomi):
     def process_exists_in_guest(self, vm, pid, creds):
         res = self.pm.ListProcessesInGuest(vm, creds, pids=[pid])
         if not res:
-            return False, ''
+            self.module.fail_json(
+                changed=False, msg='ListProcessesInGuest: None (unexpected)')
         res = res[0]
         if res.exitCode is None:
-            return True, ''
-        elif res.exitCode >= 0:
-            return False, res
+            return True, None
         else:
-            return True, res
+            return False, res
 
     def wait_for_process(self, vm, pid, creds):
         start_time = time.time()
@@ -308,7 +308,13 @@ class VMwareShellManager(PyVmomi):
             if not process_status:
                 return res_data
             elif current_time - start_time >= self.timeout:
-                break
+                self.module.fail_json(
+                    msg="Timeout waiting for process to complete.",
+                    vm=vm._moId,
+                    pid=pid,
+                    start_time=start_time,
+                    current_time=current_time,
+                    timeout=self.timeout)
             else:
                 time.sleep(5)
 
@@ -322,7 +328,11 @@ def main():
             folder=dict(type='str'),
             vm_id=dict(type='str', required=True),
             vm_id_type=dict(default='vm_name', type='str',
-                            choices=['inventory_path', 'uuid', 'dns_name', 'vm_name']),
+                            choices=['inventory_path',
+                                     'uuid',
+                                     'instance_uuid',
+                                     'dns_name',
+                                     'vm_name']),
             vm_username=dict(type='str', required=True),
             vm_password=dict(type='str', no_log=True, required=True),
             vm_shell=dict(type='str', required=True),

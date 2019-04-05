@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-# Copyright: (c) 2018, Kevin Breit (@kbreit) <kevin.breit@kevinbreit.net>
+# Copyright: (c) 2018, 2019 Kevin Breit (@kbreit) <kevin.breit@kevinbreit.net>
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 from __future__ import absolute_import, division, print_function
@@ -28,12 +28,12 @@ options:
     state:
         description:
         - Create or modify an organization.
-        choices: [absent, present, query]
+        choices: [ absent, present, query ]
         default: present
     net_name:
         description:
         - Name of a network.
-        aliases: [name, network]
+        aliases: [ name, network ]
     net_id:
         description:
         - ID number of a network.
@@ -47,11 +47,17 @@ options:
         description:
         - Type of network device network manages.
         - Required when creating a network.
-        choices: [appliance, combined, switch, wireless]
-        aliases: [net_type]
+        - As of Ansible 2.8, C(combined) type is no longer accepted.
+        - As of Ansible 2.8, changes to this parameter are no longer idempotent.
+        choices: [ appliance, switch, wireless ]
+        aliases: [ net_type ]
+        type: list
     tags:
+        type: list
         description:
-        - Comma delimited list of tags to assign to network.
+        - List of tags to assign to network.
+        - C(tags) name conflicts with the tags parameter in Ansible. Indentation problems may cause unexpected behaviors.
+        - Ansible 2.8 converts this to a list from a comma separated list.
     timezone:
         description:
         - Timezone associated to network.
@@ -72,23 +78,35 @@ EXAMPLES = r'''
 - name: List all networks associated to the YourOrg organization
   meraki_network:
     auth_key: abc12345
-    status: query
+    state: query
     org_name: YourOrg
   delegate_to: localhost
 - name: Query network named MyNet in the YourOrg organization
   meraki_network:
     auth_key: abc12345
-    status: query
+    state: query
     org_name: YourOrg
     net_name: MyNet
   delegate_to: localhost
 - name: Create network named MyNet in the YourOrg organization
   meraki_network:
     auth_key: abc12345
-    status: present
+    state: present
     org_name: YourOrg
     net_name: MyNet
     type: switch
+    timezone: America/Chicago
+    tags: production, chicago
+  delegate_to: localhost
+- name: Create combined network named MyNet in the YourOrg organization
+  meraki_network:
+    auth_key: abc12345
+    state: present
+    org_name: YourOrg
+    net_name: MyNet
+    type:
+      - switch
+      - appliance
     timezone: America/Chicago
     tags: production, chicago
   delegate_to: localhost
@@ -103,32 +121,32 @@ data:
       id:
         description: Identification string of network.
         returned: success
-        type: string
+        type: str
         sample: N_12345
       name:
         description: Written name of network.
         returned: success
-        type: string
+        type: str
         sample: YourNet
       organizationId:
         description: Organization ID which owns the network.
         returned: success
-        type: string
+        type: str
         sample: 0987654321
       tags:
         description: Space delimited tags assigned to network.
         returned: success
-        type: string
+        type: str
         sample: " production wireless "
       timeZone:
         description: Timezone where network resides.
         returned: success
-        type: string
+        type: str
         sample: America/Chicago
       type:
         description: Functional type of network.
         returned: success
-        type: string
+        type: str
         sample: switch
       disableMyMerakiCom:
         description: States whether U(my.meraki.com) and other device portals should be disabled.
@@ -152,16 +170,18 @@ def is_net_valid(meraki, net_name, data):
 
 
 def construct_tags(tags):
-    ''' Assumes tags are a comma separated list '''
-    if tags is not None:
-        tags = tags.replace(' ', '')
-        tags = tags.split(',')
-        tag_list = str()
-        for t in tags:
-            tag_list = tag_list + " " + t
-        tag_list = tag_list + " "
-        return tag_list
-    return None
+    formatted_tags = ' '.join(tags)
+    return ' {0} '.format(formatted_tags)  # Meraki needs space padding
+
+
+def list_to_string(data):
+    new_string = str()
+    for i, item in enumerate(data):
+        if i == len(new_string) - 1:
+            new_string += i
+        else:
+            new_string = "{0}{1} ".format(new_string, item)
+    return new_string.strip()
 
 
 def main():
@@ -172,8 +192,8 @@ def main():
     argument_spec = meraki_argument_spec()
     argument_spec.update(
         net_id=dict(type='str'),
-        type=dict(type='str', choices=['wireless', 'switch', 'appliance', 'combined'], aliases=['net_type']),
-        tags=dict(type='str'),
+        type=dict(type='list', choices=['wireless', 'switch', 'appliance'], aliases=['net_type']),
+        tags=dict(type='list'),
         timezone=dict(type='str'),
         net_name=dict(type='str', aliases=['name', 'network']),
         state=dict(type='str', choices=['present', 'query', 'absent'], default='present'),
@@ -219,9 +239,7 @@ def main():
         if meraki.params['net_name']:
             payload['name'] = meraki.params['net_name']
         if meraki.params['type']:
-            payload['type'] = meraki.params['type']
-            if meraki.params['type'] == 'combined':
-                payload['type'] = 'switch wireless appliance'
+            payload['type'] = list_to_string(meraki.params['type'])
         if meraki.params['tags']:
             payload['tags'] = construct_tags(meraki.params['tags'])
         if meraki.params['timezone']:
@@ -237,6 +255,14 @@ def main():
         org_id = meraki.get_org_id(meraki.params['org_name'])
     nets = meraki.get_nets(org_id=org_id)
 
+    # check if network is created
+    net_id = None
+    if meraki.params['net_name']:
+        if is_net_valid(meraki, meraki.params['net_name'], nets) is True:
+            net_id = meraki.get_net_id(net_name=meraki.params['net_name'], data=nets)
+    elif meraki.params['net_id']:
+        net_id = meraki.params['net_id']
+
     if meraki.params['state'] == 'query':
         if not meraki.params['net_name'] and not meraki.params['net_id']:
             meraki.result['data'] = nets
@@ -246,20 +272,32 @@ def main():
                                                    data=nets
                                                    )
     elif meraki.params['state'] == 'present':
-        if meraki.params['net_name']:  # FIXME: Idempotency check is ugly here, improve
-            if is_net_valid(meraki, meraki.params['net_name'], nets) is False:
-                path = meraki.construct_path('create',
-                                             org_id=org_id
+        if net_id is None:
+            path = meraki.construct_path('create',
+                                         org_id=org_id
+                                         )
+            r = meraki.request(path,
+                               method='POST',
+                               payload=json.dumps(payload)
+                               )
+            if meraki.status == 201:
+                meraki.result['data'] = r
+                meraki.result['changed'] = True
+        else:
+            net = meraki.get_net(meraki.params['org_name'], meraki.params['net_name'], data=nets)
+            if meraki.is_update_required(net, payload):
+                path = meraki.construct_path('update',
+                                             net_id=meraki.get_net_id(net_name=meraki.params['net_name'], data=nets)
                                              )
                 r = meraki.request(path,
-                                   method='POST',
-                                   payload=json.dumps(payload)
-                                   )
-                if meraki.status == 201:
+                                   method='PUT',
+                                   payload=json.dumps(payload))
+                if meraki.status == 200:
                     meraki.result['data'] = r
                     meraki.result['changed'] = True
             else:
                 net = meraki.get_net(meraki.params['org_name'], meraki.params['net_name'], data=nets)
+                # meraki.fail_json(msg="HERE", net=net, payload=payload)
                 if meraki.is_update_required(net, payload):
                     path = meraki.construct_path('update',
                                                  net_id=meraki.get_net_id(net_name=meraki.params['net_name'], data=nets)

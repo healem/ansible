@@ -34,16 +34,23 @@ options:
     required: true
     description:
       - Base URI of OOB controller
-  user:
+  username:
     required: true
     description:
       - User for authentication with OOB controller
+    version_added: "2.8"
   password:
     required: true
     description:
       - Password for authentication with OOB controller
+  timeout:
+    description:
+      - Timeout in seconds for URL requests to OOB controller
+    default: 10
+    type: int
+    version_added: '2.8'
 
-author: "Jose Delarosa (github: jose-delarosa)"
+author: "Jose Delarosa (@jose-delarosa)"
 '''
 
 EXAMPLES = '''
@@ -52,43 +59,74 @@ EXAMPLES = '''
       category: Systems
       command: GetCpuInventory
       baseuri: "{{ baseuri }}"
-      user: "{{ user }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+  - debug:
+      msg: "{{ redfish_facts.cpu.entries | to_nice_json }}"
+
+  - name: Get CPU model
+    redfish_facts:
+      category: Systems
+      command: GetCpuInventory
+      baseuri: "{{ baseuri }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+  - debug:
+      msg: "{{ redfish_facts.cpu.entries.0.Model }}"
+
+  - name: Get memory inventory
+    redfish_facts:
+      category: Systems
+      command: GetMemoryInventory
+      baseuri: "{{ baseuri }}"
+      username: "{{ username }}"
       password: "{{ password }}"
 
-  - name: Get fan inventory
+  - name: Get fan inventory with a timeout of 20 seconds
     redfish_facts:
       category: Chassis
       command: GetFanInventory
       baseuri: "{{ baseuri }}"
-      user: "{{ user }}"
+      username: "{{ username }}"
       password: "{{ password }}"
+      timeout: 20
 
   - name: Get default inventory information
     redfish_facts:
       baseuri: "{{ baseuri }}"
-      user: "{{ user }}"
+      username: "{{ username }}"
       password: "{{ password }}"
+  - debug:
+      msg: "{{ redfish_facts | to_nice_json }}"
 
   - name: Get several inventories
     redfish_facts:
       category: Systems
-      command: GetNicInventory,GetPsuInventory,GetBiosAttributes
+      command: GetNicInventory,GetBiosAttributes
       baseuri: "{{ baseuri }}"
-      user: "{{ user }}"
+      username: "{{ username }}"
       password: "{{ password }}"
 
   - name: Get default system inventory and user information
     redfish_facts:
       category: Systems,Accounts
       baseuri: "{{ baseuri }}"
-      user: "{{ user }}"
+      username: "{{ username }}"
       password: "{{ password }}"
 
   - name: Get default system, user and firmware information
     redfish_facts:
       category: ["Systems", "Accounts", "Update"]
       baseuri: "{{ baseuri }}"
-      user: "{{ user }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+
+  - name: Get Manager NIC inventory information
+    redfish_facts:
+      category: Manager
+      command: GetManagerNicInventory
+      baseuri: "{{ baseuri }}"
+      username: "{{ username }}"
       password: "{{ password }}"
 
   - name: Get all information available in the Manager category
@@ -96,7 +134,7 @@ EXAMPLES = '''
       category: Manager
       command: all
       baseuri: "{{ baseuri }}"
-      user: "{{ user }}"
+      username: "{{ username }}"
       password: "{{ password }}"
 
   - name: Get all information available in all categories
@@ -104,7 +142,7 @@ EXAMPLES = '''
       category: all
       command: all
       baseuri: "{{ baseuri }}"
-      user: "{{ user }}"
+      username: "{{ username }}"
       password: "{{ password }}"
 '''
 
@@ -121,12 +159,13 @@ from ansible.module_utils.redfish_utils import RedfishUtils
 
 CATEGORY_COMMANDS_ALL = {
     "Systems": ["GetSystemInventory", "GetPsuInventory", "GetCpuInventory",
-                "GetNicInventory", "GetStorageControllerInventory",
-                "GetDiskInventory", "GetBiosAttributes", "GetBiosBootOrder"],
-    "Chassis": ["GetFanInventory"],
+                "GetMemoryInventory", "GetNicInventory",
+                "GetStorageControllerInventory", "GetDiskInventory",
+                "GetBiosAttributes", "GetBootOrder"],
+    "Chassis": ["GetFanInventory", "GetPsuInventory"],
     "Accounts": ["ListUsers"],
     "Update": ["GetFirmwareInventory"],
-    "Manager": ["GetManagerAttributes", "GetLogs"],
+    "Manager": ["GetManagerNicInventory", "GetLogs"],
 }
 
 CATEGORY_COMMANDS_DEFAULT = {
@@ -134,7 +173,7 @@ CATEGORY_COMMANDS_DEFAULT = {
     "Chassis": "GetFanInventory",
     "Accounts": "ListUsers",
     "Update": "GetFirmwareInventory",
-    "Manager": "GetManagerAttributes"
+    "Manager": "GetManagerNicInventory"
 }
 
 
@@ -147,20 +186,24 @@ def main():
             category=dict(type='list', default=['Systems']),
             command=dict(type='list'),
             baseuri=dict(required=True),
-            user=dict(required=True),
+            username=dict(required=True),
             password=dict(required=True, no_log=True),
+            timeout=dict(type='int', default=10)
         ),
         supports_check_mode=False
     )
 
     # admin credentials used for authentication
-    creds = {'user': module.params['user'],
+    creds = {'user': module.params['username'],
              'pswd': module.params['password']}
+
+    # timeout
+    timeout = module.params['timeout']
 
     # Build root URI
     root_uri = "https://" + module.params['baseuri']
     rf_uri = "/redfish/v1/"
-    rf_utils = RedfishUtils(creds, root_uri)
+    rf_utils = RedfishUtils(creds, root_uri, timeout)
 
     # Build Category list
     if "all" in module.params['category']:
@@ -201,21 +244,21 @@ def main():
 
             for command in command_list:
                 if command == "GetSystemInventory":
-                    result["system"] = rf_utils.get_system_inventory()
-                elif command == "GetPsuInventory":
-                    result["psu"] = rf_utils.get_psu_inventory()
+                    result["system"] = rf_utils.get_multi_system_inventory()
                 elif command == "GetCpuInventory":
-                    result["cpu"] = rf_utils.get_cpu_inventory()
+                    result["cpu"] = rf_utils.get_multi_cpu_inventory()
+                elif command == "GetMemoryInventory":
+                    result["memory"] = rf_utils.get_multi_memory_inventory()
                 elif command == "GetNicInventory":
-                    result["nic"] = rf_utils.get_nic_inventory()
+                    result["nic"] = rf_utils.get_multi_nic_inventory(category)
                 elif command == "GetStorageControllerInventory":
-                    result["storage_controller"] = rf_utils.get_storage_controller_inventory()
+                    result["storage_controller"] = rf_utils.get_multi_storage_controller_inventory()
                 elif command == "GetDiskInventory":
-                    result["disk"] = rf_utils.get_disk_inventory()
+                    result["disk"] = rf_utils.get_multi_disk_inventory()
                 elif command == "GetBiosAttributes":
-                    result["bios_attribute"] = rf_utils.get_bios_attributes()
-                elif command == "GetBiosBootOrder":
-                    result["bios_boot_order"] = rf_utils.get_bios_boot_order()
+                    result["bios_attribute"] = rf_utils.get_multi_bios_attributes()
+                elif command == "GetBootOrder":
+                    result["boot_order"] = rf_utils.get_multi_boot_order()
 
         elif category == "Chassis":
             # execute only if we find Chassis resource
@@ -226,6 +269,8 @@ def main():
             for command in command_list:
                 if command == "GetFanInventory":
                     result["fan"] = rf_utils.get_fan_inventory()
+                elif command == "GetPsuInventory":
+                    result["psu"] = rf_utils.get_psu_inventory()
 
         elif category == "Accounts":
             # execute only if we find an Account service resource
@@ -254,8 +299,8 @@ def main():
                 module.fail_json(msg=resource['msg'])
 
             for command in command_list:
-                if command == "GetManagerAttributes":
-                    result["manager_attributes"] = rf_utils.get_manager_attributes()
+                if command == "GetManagerNicInventory":
+                    result["manager_nics"] = rf_utils.get_multi_nic_inventory(category)
                 elif command == "GetLogs":
                     result["log"] = rf_utils.get_logs()
 

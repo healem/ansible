@@ -23,6 +23,9 @@ To contribute a module to Ansible, you must:
 * include comprehensive :ref:`tests <developing_testing>` for your module
 * minimize module dependencies
 * support :ref:`check_mode <check_mode_dry>` if possible
+* ensure your code is readable
+* if a module is named ``<something>_facts``, it should be because its main purpose is returning ``ansible_facts``. Do not name modules that do not do this with ``_facts``.
+* Modules that query/return general information (and not ``ansible_facts``) should be named ``_info``.
 
 Please make sure your module meets these requirements before you submit your PR/proposal. If you have questions, reach out via `Ansible's IRC chat channel <http://irc.freenode.net>`_ or the `Ansible development mailing list <https://groups.google.com/group/ansible-devel>`_.
 
@@ -31,7 +34,8 @@ Contributing to Ansible: subjective requirements
 
 If your module meets our objective requirements, we'll review your code to see if we think it's clear, concise, secure, and maintainable. We'll consider whether your module provides a good user experience, helpful error messages, reasonable defaults, and more. This process is subjective, and we can't list exact standards for acceptance. For the best chance of getting your module accepted into the Ansible repo, follow our :ref:`tips for module development <developing_modules_best_practices>`.
 
-Windows modules checklist
-=========================
+Other checklists
+================
 
-For a checklist and details on how to write Windows modules please see :ref:`developing_modules_general_windows`
+* `Amazon development checklist <https://github.com/ansible/ansible/blob/devel/lib/ansible/modules/cloud/amazon/GUIDELINES.md>`_.
+* :ref:`Windows development checklist <developing_modules_general_windows>`.

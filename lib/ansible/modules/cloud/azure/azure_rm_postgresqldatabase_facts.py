@@ -45,13 +45,13 @@ author:
 EXAMPLES = '''
   - name: Get instance of PostgreSQL Database
     azure_rm_postgresqldatabase_facts:
-      resource_group: resource_group_name
+      resource_group: myResourceGroup
       server_name: server_name
       name: database_name
 
   - name: List instances of PostgreSQL Database
     azure_rm_postgresqldatabase_facts:
-      resource_group: resource_group_name
+      resource_group: myResourceGroup
       server_name: server_name
 '''
 
@@ -66,7 +66,7 @@ databases:
                 - Resource ID
             returned: always
             type: str
-            sample: "/subscriptions/ffffffff-ffff-ffff-ffff-ffffffffffff/resourceGroups/TestGroup/providers/Microsoft.DBforPostgreSQL/servers/testser
+            sample: "/subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/resourceGroups/myResourceGroup/providers/Microsoft.DBforPostgreSQL/servers/testser
                     ver/databases/db1"
         resource_group:
             description:
@@ -104,7 +104,6 @@ from ansible.module_utils.azure_rm_common import AzureRMModuleBase
 
 try:
     from msrestazure.azure_exceptions import CloudError
-    from msrestazure.azure_operation import AzureOperationPoller
     from azure.mgmt.rdbms.postgresql import PostgreSQLManagementClient
     from msrest.serialization import Model
 except ImportError:
@@ -112,7 +111,7 @@ except ImportError:
     pass
 
 
-class AzureRMDatabasesFacts(AzureRMModuleBase):
+class AzureRMPostgreSqlDatabasesFacts(AzureRMModuleBase):
     def __init__(self):
         # define user inputs into argument
         self.module_arg_spec = dict(
@@ -135,7 +134,7 @@ class AzureRMDatabasesFacts(AzureRMModuleBase):
         self.resource_group = None
         self.server_name = None
         self.name = None
-        super(AzureRMDatabasesFacts, self).__init__(self.module_arg_spec, supports_tags=False)
+        super(AzureRMPostgreSqlDatabasesFacts, self).__init__(self.module_arg_spec, supports_tags=False)
 
     def exec_module(self, **kwargs):
         for key in self.module_arg_spec:
@@ -195,7 +194,7 @@ class AzureRMDatabasesFacts(AzureRMModuleBase):
 
 
 def main():
-    AzureRMDatabasesFacts()
+    AzureRMPostgreSqlDatabasesFacts()
 
 
 if __name__ == '__main__':

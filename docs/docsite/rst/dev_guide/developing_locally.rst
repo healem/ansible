@@ -27,7 +27,7 @@ Modules and plugins: what's the difference?
 If you're looking to add local functionality to Ansible, you may be wondering whether you need a module or a plugin. Here's a quick overview of the differences:
 
 * Modules are reusable, standalone scripts that can be used by the Ansible API, the :command:`ansible` command, or the :command:`ansible-playbook` command. Modules provide a defined interface, accepting arguments and returning information to Ansible by printing a JSON string to stdout before exiting.
-* Plugins are shared code that can be used by any module. They provide abilities like cacheing information or copying files that are useful for many modules.
+* Plugins are shared code that can be used by any module. They provide abilities like caching information or copying files that are useful for many modules.
 
 .. _local_modules:
 
@@ -75,8 +75,8 @@ Ansible loads plugins automatically too, loading each type of plugin separately 
 You can create or add a local plugin in any of these locations:
 
 * any directory added to the relevant ``ANSIBLE_plugin_type_PLUGINS`` environment variable (these variables, such as ``$ANSIBLE_INVENTORY_PLUGINS`` and ``$ANSIBLE_VARS_PLUGINS`` take colon-separated lists like ``$PATH``)
-* the directory named for the correct ``plugin_type`` within ``~/.ansible/plugins/`` - for example, ``~/.ansible/plugins/callback_plugins``
-* the directory named for the correct ``plugin_type`` within ``/usr/share/ansible/plugins/`` - for example, ``/usr/share/ansible/plugins/plugin_type/action_plugins``
+* the directory named for the correct ``plugin_type`` within ``~/.ansible/plugins/`` - for example, ``~/.ansible/plugins/callback``
+* the directory named for the correct ``plugin_type`` within ``/usr/share/ansible/plugins/`` - for example, ``/usr/share/ansible/plugins/action``
 
 Once your plugin file is in one of these locations, Ansible will load it and you can use it in a any local module, task, playbook, or role.
 

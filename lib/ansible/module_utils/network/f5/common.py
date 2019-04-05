@@ -21,12 +21,6 @@ from ansible.module_utils.parsing.convert_bool import BOOLEANS_TRUE
 from ansible.module_utils.parsing.convert_bool import BOOLEANS_FALSE
 from collections import defaultdict
 
-try:
-    from icontrol.exceptions import iControlUnexpectedHTTPError
-    HAS_F5SDK = True
-except ImportError:
-    HAS_F5SDK = False
-
 
 MANAGED_BY_ANNOTATION_VERSION = 'f5-ansible.version'
 MANAGED_BY_ANNOTATION_MODIFIED = 'f5-ansible.last_modified'
@@ -60,7 +54,8 @@ f5_provider_spec = {
         default='rest'
     ),
     'timeout': dict(type='int'),
-    'auth_provider': dict()
+    'auth_provider': dict(),
+    'proxy_to': dict(),
 }
 
 f5_argument_spec = {
@@ -70,27 +65,22 @@ f5_argument_spec = {
 f5_top_spec = {
     'server': dict(
         removed_in_version=2.9,
-        fallback=(env_fallback, ['F5_SERVER'])
     ),
     'user': dict(
         removed_in_version=2.9,
-        fallback=(env_fallback, ['F5_USER', 'ANSIBLE_NET_USERNAME'])
     ),
     'password': dict(
         removed_in_version=2.9,
         no_log=True,
         aliases=['pass', 'pwd'],
-        fallback=(env_fallback, ['F5_PASSWORD', 'ANSIBLE_NET_PASSWORD'])
     ),
     'validate_certs': dict(
         removed_in_version=2.9,
         type='bool',
-        fallback=(env_fallback, ['F5_VALIDATE_CERTS'])
     ),
     'server_port': dict(
         removed_in_version=2.9,
         type='int',
-        fallback=(env_fallback, ['F5_SERVER_PORT'])
     ),
     'transport': dict(
         removed_in_version=2.9,
@@ -135,7 +125,7 @@ def fqdn_name(partition, value):
     return fq_name(partition, value)
 
 
-def fq_name(partition, value):
+def fq_name(partition, value, sub_path=''):
     """Returns a 'Fully Qualified' name
 
     A BIG-IP expects most names of resources to be in a fully-qualified
@@ -167,16 +157,29 @@ def fq_name(partition, value):
         value (string): The name that you want to attach a partition to.
             This value will be returned unchanged if it has a partition
             attached to it already.
+        sub_path (string): The sub path element. If defined the sub_path
+            will be inserted between partition and value.
+            This will also work on FQ names.
     Returns:
         string: The fully qualified name, given the input parameters.
     """
-    if value is not None:
+    if value is not None and sub_path == '':
         try:
             int(value)
             return '/{0}/{1}'.format(partition, value)
         except (ValueError, TypeError):
             if not value.startswith('/'):
                 return '/{0}/{1}'.format(partition, value)
+    if value is not None and sub_path != '':
+        try:
+            int(value)
+            return '/{0}/{1}/{2}'.format(partition, sub_path, value)
+        except (ValueError, TypeError):
+            if value.startswith('/'):
+                dummy, partition, name = value.split('/')
+                return '/{0}/{1}/{2}'.format(partition, sub_path, name)
+            if not value.startswith('/'):
+                return '/{0}/{1}/{2}'.format(partition, sub_path, value)
     return value
 
 
@@ -211,46 +214,14 @@ def run_commands(module, commands, check_rc=True):
 
 
 def flatten_boolean(value):
-    truthy = list(BOOLEANS_TRUE) + ['enabled']
-    falsey = list(BOOLEANS_FALSE) + ['disabled']
+    truthy = list(BOOLEANS_TRUE) + ['enabled', 'True']
+    falsey = list(BOOLEANS_FALSE) + ['disabled', 'False']
     if value is None:
         return None
     elif value in truthy:
         return 'yes'
     elif value in falsey:
         return 'no'
-
-
-def cleanup_tokens(client=None):
-    if client is None:
-        return
-    try:
-        # isinstance cannot be used here because to import it creates a
-        # circular dependency with teh module_utils.network.f5.bigip file.
-        #
-        # TODO(consider refactoring cleanup_tokens)
-        if 'F5RestClient' in type(client).__name__:
-            token = client._client.headers.get('X-F5-Auth-Token', None)
-            if not token:
-                return
-            uri = "https://{0}:{1}/mgmt/shared/authz/tokens/{2}".format(
-                client.provider['server'],
-                client.provider['server_port'],
-                token
-            )
-            resp = client.api.delete(uri)
-            try:
-                resp.json()
-            except ValueError as ex:
-                raise F5ModuleError(str(ex))
-            return True
-        else:
-            resource = client.api.shared.authz.tokens_s.token.load(
-                name=client.api.icrs.token
-            )
-            resource.delete()
-    except Exception as ex:
-        pass
 
 
 def is_cli(module):
@@ -315,10 +286,19 @@ def is_valid_fqdn(host):
 
 
 def transform_name(partition='', name='', sub_path=''):
+    if partition != '':
+        if name.startswith(partition + '/'):
+            name = name.replace(partition + '/', '')
+        if name.startswith('/' + partition + '/'):
+            name = name.replace('/' + partition + '/', '')
+
     if name:
         name = name.replace('/', '~')
+
     if partition:
-        partition = '~' + partition
+        partition = partition.replace('/', '~')
+        if not partition.startswith('~'):
+            partition = '~' + partition
     else:
         if sub_path:
             raise F5ModuleError(
@@ -335,74 +315,10 @@ def transform_name(partition='', name='', sub_path=''):
     return result
 
 
-def compare_complex_list(want, have):
-    """Performs a complex list comparison
-
-    A complex list is a list of dictionaries
-
-    Args:
-        want (list): List of dictionaries to compare with second parameter.
-        have (list): List of dictionaries compare with first parameter.
-
-    Returns:
-        bool:
-    """
-    if want == [] and have is None:
-        return None
-    if want is None:
-        return None
-    w = []
-    h = []
-    for x in want:
-        tmp = [(str(k), str(v)) for k, v in iteritems(x)]
-        w += tmp
-    for x in have:
-        tmp = [(str(k), str(v)) for k, v in iteritems(x)]
-        h += tmp
-    if set(w) == set(h):
-        return None
-    else:
-        return want
-
-
-def compare_dictionary(want, have):
-    """Performs a dictionary comparison
-
-    Args:
-        want (dict): Dictionary to compare with second parameter.
-        have (dict): Dictionary to compare with first parameter.
-
-    Returns:
-        bool:
-    """
-    if want == {} and have is None:
-        return None
-    if want is None:
-        return None
-    w = [(str(k), str(v)) for k, v in iteritems(want)]
-    h = [(str(k), str(v)) for k, v in iteritems(have)]
-    if set(w) == set(h):
-        return None
-    else:
-        return want
-
-
 def is_ansible_debug(module):
     if module._debug and module._verbosity >= 4:
         return True
     return False
-
-
-def fail_json(module, ex, client=None):
-    if is_ansible_debug(module) and client:
-        module.fail_json(msg=str(ex), __f5debug__=client.api.debug_output)
-    module.fail_json(msg=str(ex))
-
-
-def exit_json(module, results, client=None):
-    if is_ansible_debug(module) and client:
-        results['__f5debug__'] = client.api.debug_output
-    module.exit_json(**results)
 
 
 def is_uuid(uuid=None):
@@ -532,7 +448,9 @@ class F5BaseClient(object):
 
     def merge_provider_params(self):
         result = dict()
-        provider = self.params.get('provider', {})
+        provider = self.params.get('provider', None)
+        if not provider:
+            provider = {}
 
         self.merge_provider_server_param(result, provider)
         self.merge_provider_server_port_param(result, provider)
@@ -540,6 +458,7 @@ class F5BaseClient(object):
         self.merge_provider_auth_provider_param(result, provider)
         self.merge_provider_user_param(result, provider)
         self.merge_provider_password_param(result, provider)
+        self.merge_proxy_to_param(result, provider)
 
         return result
 
@@ -626,6 +545,12 @@ class F5BaseClient(object):
         else:
             result['password'] = None
 
+    def merge_proxy_to_param(self, result, provider):
+        if self.validate_params('proxy_to', provider):
+            result['proxy_to'] = provider['proxy_to']
+        else:
+            result['proxy_to'] = None
+
 
 class AnsibleF5Parameters(object):
     def __init__(self, *args, **kwargs):
@@ -644,6 +569,16 @@ class AnsibleF5Parameters(object):
         if params:
             self._params.update(params)
             for k, v in iteritems(params):
+                # Adding this here because ``username`` is a connection parameter
+                # and in cases where it is also an API parameter, we run the risk
+                # of overriding the specified parameter with the connection parameter.
+                #
+                # Since this is a problem, and since "username" is never a valid
+                # parameter outside its usage in connection params (where we do not
+                # use the ApiParameter or ModuleParameters classes) it is safe to
+                # skip over it if it is provided.
+                if k == 'password':
+                    continue
                 if self.api_map is not None and k in self.api_map:
                     map_key = self.api_map[k]
                 else:

@@ -90,11 +90,23 @@ ansible_net_version:
 ansible_net_hostname:
   description: The configured hostname of the device
   returned: always
-  type: string
+  type: str
 ansible_net_image:
   description: The image file the device is running
   returned: always
-  type: string
+  type: str
+ansible_net_api:
+  description: The name of the transport
+  returned: always
+  type: str
+ansible_net_license_hostid:
+  description: The License host id of the device
+  returned: always
+  type: str
+ansible_net_python_version:
+  description: The Python version Ansible controller is using
+  returned: always
+  type: str
 
 # hardware
 ansible_net_filesystems:
@@ -130,7 +142,9 @@ ansible_net_interfaces:
   returned: when interfaces is configured
   type: dict
 ansible_net_neighbors:
-  description: The list of LLDP/CDP neighbors from the remote device
+  description:
+    - The list of LLDP and CDP neighbors from the device. If both,
+      CDP and LLDP neighbor data is present on one port, CDP is preferred.
   returned: when interfaces is configured
   type: dict
 
@@ -168,11 +182,14 @@ vlan_list:
   returned: when legacy is configured
   type: list
 """
+
+import platform
 import re
 
 from ansible.module_utils.network.nxos.nxos import run_commands, get_config
 from ansible.module_utils.network.nxos.nxos import get_capabilities, get_interface_type
 from ansible.module_utils.network.nxos.nxos import nxos_argument_spec, check_args
+from ansible.module_utils.network.nxos.nxos import normalize_interface
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.connection import ConnectionError
 from ansible.module_utils.six import string_types, iteritems
@@ -187,6 +204,7 @@ class FactsBase(object):
         self.module = module
         self.warnings = list()
         self.facts = dict()
+        self.capabilities = get_capabilities(self.module)
 
     def populate(self):
         pass
@@ -224,70 +242,49 @@ class FactsBase(object):
 
 class Default(FactsBase):
 
-    VERSION_MAP_7K = frozenset([
-        ('sys_ver_str', 'version'),
-        ('proc_board_id', 'serialnum'),
-        ('chassis_id', 'model'),
-        ('isan_file_name', 'image'),
-        ('host_name', 'hostname')
-    ])
-
-    VERSION_MAP = frozenset([
-        ('kickstart_ver_str', 'version'),
-        ('proc_board_id', 'serialnum'),
-        ('chassis_id', 'model'),
-        ('kick_file_name', 'image'),
-        ('host_name', 'hostname')
-    ])
-
     def populate(self):
         data = None
-
-        data = self.run('show version', output='json')
+        data = self.run('show version')
 
         if data:
-            if isinstance(data, dict):
-                if data.get('sys_ver_str'):
-                    self.facts.update(self.transform_dict(data, self.VERSION_MAP_7K))
-                else:
-                    self.facts.update(self.transform_dict(data, self.VERSION_MAP))
-            else:
-                self.facts['version'] = self.parse_version(data)
-                self.facts['serialnum'] = self.parse_serialnum(data)
-                self.facts['model'] = self.parse_model(data)
-                self.facts['image'] = self.parse_image(data)
-                self.facts['hostname'] = self.parse_hostname(data)
+            self.facts['serialnum'] = self.parse_serialnum(data)
 
-    def parse_version(self, data):
-        match = re.search(r'\s+system:\s+version\s*(\S+)', data, re.M)
-        if match:
-            return match.group(1)
-        else:
-            match = re.search(r'\s+kickstart:\s+version\s*(\S+)', data, re.M)
-            if match:
-                return match.group(1)
+        data = self.run('show license host-id')
+        if data:
+            self.facts['license_hostid'] = self.parse_license_hostid(data)
+
+        self.facts.update(self.platform_facts())
 
     def parse_serialnum(self, data):
         match = re.search(r'Processor Board ID\s*(\S+)', data, re.M)
         if match:
             return match.group(1)
 
-    def parse_model(self, data):
-        match = re.search(r'Hardware\n\s+cisco\s*(\S+\s+\S+)', data, re.M)
+    def parse_license_hostid(self, data):
+        match = re.search(r'License hostid: VDH=(.+)$', data, re.M)
         if match:
             return match.group(1)
 
-    def parse_image(self, data):
-        match = re.search(r'\s+system image file is:\s*(\S+)', data, re.M)
-        if match:
-            return match.group(1)
-        else:
-            match = re.search(r'\s+kickstart image file is:\s*(\S+)', data, re.M)
-            if match:
-                return match.group(1)
+    def platform_facts(self):
+        platform_facts = {}
 
-    def parse_hostname(self, data):
-        match = re.search(r'\s+Device name:\s*(\S+)', data, re.M)
+        resp = self.capabilities
+        device_info = resp['device_info']
+
+        platform_facts['system'] = device_info['network_os']
+
+        for item in ('model', 'image', 'version', 'platform', 'hostname'):
+            val = device_info.get('network_os_%s' % item)
+            if val:
+                platform_facts[item] = val
+
+        platform_facts['api'] = resp['network_api']
+        platform_facts['python_version'] = platform.python_version()
+
+        return platform_facts
+
+    def parse_license_hostid(self, data):
+        match = re.search(r'License hostid: VDH=(.+)$', data, re.M)
         if match:
             return match.group(1)
 
@@ -386,7 +383,7 @@ class Interfaces(FactsBase):
     ])
 
     def ipv6_structure_op_supported(self):
-        data = get_capabilities(self.module)
+        data = self.capabilities
         if data:
             nxos_os_version = data['device_info']['network_os_version']
             unsupported_versions = ['I2', 'F1', 'A8']
@@ -398,6 +395,7 @@ class Interfaces(FactsBase):
     def populate(self):
         self.facts['all_ipv4_addresses'] = list()
         self.facts['all_ipv6_addresses'] = list()
+        self.facts['neighbors'] = {}
         data = None
 
         data = self.run('show interface', output='json')
@@ -420,16 +418,21 @@ class Interfaces(FactsBase):
                 interfaces = self.parse_interfaces(data)
                 self.populate_ipv6_interfaces(interfaces)
 
-        data = self.run('show lldp neighbors')
+        data = self.run('show lldp neighbors', output='json')
         if data:
-            self.facts['neighbors'] = self.populate_neighbors(data)
+            if isinstance(data, dict):
+                self.facts['neighbors'].update(self.populate_structured_neighbors_lldp(data))
+            else:
+                self.facts['neighbors'].update(self.populate_neighbors(data))
 
         data = self.run('show cdp neighbors detail', output='json')
         if data:
             if isinstance(data, dict):
-                self.facts['neighbors'] = self.populate_structured_neighbors_cdp(data)
+                self.facts['neighbors'].update(self.populate_structured_neighbors_cdp(data))
             else:
-                self.facts['neighbors'] = self.populate_neighbors_cdp(data)
+                self.facts['neighbors'].update(self.populate_neighbors_cdp(data))
+
+        self.facts['neighbors'].pop(None, None)  # Remove null key
 
     def populate_structured_interfaces(self, data):
         interfaces = dict()
@@ -474,6 +477,23 @@ class Interfaces(FactsBase):
         except TypeError:
             return ""
 
+    def populate_structured_neighbors_lldp(self, data):
+        objects = dict()
+        data = data['TABLE_nbor']['ROW_nbor']
+
+        if isinstance(data, dict):
+            data = [data]
+
+        for item in data:
+            local_intf = normalize_interface(item['l_port_id'])
+            objects[local_intf] = list()
+            nbor = dict()
+            nbor['port'] = item['port_id']
+            nbor['host'] = nbor['sysname'] = item['chassis_id']
+            objects[local_intf].append(nbor)
+
+        return objects
+
     def populate_structured_neighbors_cdp(self, data):
         objects = dict()
         data = data['TABLE_cdp_neighbor_detail_info']['ROW_cdp_neighbor_detail_info']
@@ -486,7 +506,7 @@ class Interfaces(FactsBase):
             objects[local_intf] = list()
             nbor = dict()
             nbor['port'] = item['port_id']
-            nbor['sysname'] = item['device_id']
+            nbor['host'] = nbor['sysname'] = item['device_id']
             objects[local_intf].append(nbor)
 
         return objects
@@ -609,34 +629,22 @@ class Interfaces(FactsBase):
 
     def populate_neighbors(self, data):
         objects = dict()
-        if isinstance(data, str):
-            # if there are no neighbors the show command returns
-            # ERROR: No neighbour information
-            if data.startswith('ERROR'):
-                return dict()
+        # if there are no neighbors the show command returns
+        # ERROR: No neighbour information
+        if data.startswith('ERROR'):
+            return dict()
 
-            regex = re.compile(r'(\S+)\s+(\S+)\s+\d+\s+\w+\s+(\S+)')
+        regex = re.compile(r'(\S+)\s+(\S+)\s+\d+\s+\w+\s+(\S+)')
 
-            for item in data.split('\n')[4:-1]:
-                match = regex.match(item)
-                if match:
-                    nbor = {'host': match.group(1), 'port': match.group(3)}
-                    if match.group(2) not in objects:
-                        objects[match.group(2)] = []
-                    objects[match.group(2)].append(nbor)
-
-        elif isinstance(data, dict):
-            data = data['TABLE_nbor']['ROW_nbor']
-            if isinstance(data, dict):
-                data = [data]
-
-            for item in data:
-                local_intf = item['l_port_id']
-                if local_intf not in objects:
-                    objects[local_intf] = list()
+        for item in data.split('\n')[4:-1]:
+            match = regex.match(item)
+            if match:
                 nbor = dict()
-                nbor['port'] = item['port_id']
-                nbor['host'] = item['chassis_id']
+                nbor['host'] = nbor['sysname'] = match.group(1)
+                nbor['port'] = match.group(3)
+                local_intf = normalize_interface(match.group(2))
+                if local_intf not in objects:
+                    objects[local_intf] = []
                 objects[local_intf].append(nbor)
 
         return objects
@@ -661,7 +669,7 @@ class Interfaces(FactsBase):
     def parse_lldp_intf(self, data):
         match = re.search(r'Interface:\s*(\S+)', data, re.M)
         if match:
-            return match.group(1)
+            return match.group(1).strip(',')
 
     def parse_lldp_port(self, data):
         match = re.search(r'Port ID \(outgoing port\):\s*(\S+)', data, re.M)
@@ -722,9 +730,13 @@ class Legacy(FactsBase):
         ('psmodel', 'model'),
         ('psnum', 'number'),
         ('ps_status', 'status'),
+        ('ps_status_3k', 'status'),
         ('actual_out', 'actual_output'),
         ('actual_in', 'actual_in'),
-        ('total_capa', 'total_capacity')
+        ('total_capa', 'total_capacity'),
+        ('input_type', 'input_type'),
+        ('watts', 'watts'),
+        ('amps', 'amps')
     ])
 
     def populate(self):
@@ -810,10 +822,16 @@ class Legacy(FactsBase):
 
     def parse_structured_power_supply_info(self, data):
         if data.get('powersup').get('TABLE_psinfo_n3k'):
-            data = data['powersup']['TABLE_psinfo_n3k']['ROW_psinfo_n3k']
+            fact = data['powersup']['TABLE_psinfo_n3k']['ROW_psinfo_n3k']
         else:
-            data = data['powersup']['TABLE_psinfo']['ROW_psinfo']
-        objects = list(self.transform_iterable(data, self.POWERSUP_MAP))
+            if isinstance(data['powersup']['TABLE_psinfo'], list):
+                fact = []
+                for i in data['powersup']['TABLE_psinfo']:
+                    fact.append(i['ROW_psinfo'])
+            else:
+                fact = data['powersup']['TABLE_psinfo']['ROW_psinfo']
+
+        objects = list(self.transform_iterable(fact, self.POWERSUP_MAP))
         return objects
 
     def parse_hostname(self, data):

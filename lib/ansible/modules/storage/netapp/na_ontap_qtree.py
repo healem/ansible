@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# (c) 2018, NetApp, Inc
+# (c) 2018-2019, NetApp, Inc
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 from __future__ import absolute_import, division, print_function
@@ -9,7 +9,7 @@ __metaclass__ = type
 
 ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['preview'],
-                    'supported_by': 'community'}
+                    'supported_by': 'certified'}
 
 
 DOCUMENTATION = '''
@@ -20,7 +20,7 @@ short_description: NetApp ONTAP manage qtrees
 extends_documentation_fragment:
     - netapp.na_ontap
 version_added: '2.6'
-author: NetApp Ansible Team (ng-ansibleteam@netapp.com)
+author: NetApp Ansible Team (@carchi8py) <ng-ansibleteam@netapp.com>
 
 description:
 - Create or destroy Qtrees.
@@ -55,7 +55,7 @@ options:
 '''
 
 EXAMPLES = """
-- name: Create QTree
+- name: Create Qtrees
   na_ontap_qtree:
     state: present
     name: ansibleQTree
@@ -65,9 +65,10 @@ EXAMPLES = """
     username: "{{ netapp_username }}"
     password: "{{ netapp_password }}"
 
-- name: Rename QTree
+- name: Rename Qtrees
   na_ontap_qtree:
     state: present
+    from_name: ansibleQTree_rename
     name: ansibleQTree
     flexvol_name: ansibleVolume
     vserver: ansibleVServer

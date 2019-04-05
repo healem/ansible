@@ -58,6 +58,10 @@ options:
      description:
        - Scheduler hints passed to volume API in form of dict
      version_added: "2.4"
+   metadata:
+     description:
+       - Metadata for the volume
+     version_added: "2.8"
 requirements:
      - "python >= 2.7"
      - "openstacksdk"
@@ -77,6 +81,20 @@ EXAMPLES = '''
       display_name: test_volume
       scheduler_hints:
         same_host: 243e8d3c-8f47-4a61-93d6-7215c344b0c0
+'''
+
+RETURNS = '''
+id:
+  description: Cinder's unique ID for this volume
+  returned: always
+  type: str
+  sample: fcc4ac1c-e249-4fe7-b458-2138bfb44c06
+
+volume:
+  description: Cinder's representation of the volume object
+  returned: always
+  type: dict
+  sample: {'...'}
 '''
 from distutils.version import StrictVersion
 
@@ -111,6 +129,9 @@ def _present_volume(module, cloud):
     if module.params['scheduler_hints']:
         volume_args['scheduler_hints'] = module.params['scheduler_hints']
 
+    if module.params['metadata']:
+        volume_args['metadata'] = module.params['metadata']
+
     volume = cloud.create_volume(
         wait=module.params['wait'], timeout=module.params['timeout'],
         **volume_args)
@@ -124,7 +145,7 @@ def _absent_volume(module, cloud, sdk):
             changed = cloud.delete_volume(name_or_id=module.params['display_name'],
                                           wait=module.params['wait'],
                                           timeout=module.params['timeout'])
-        except sdk.exceptions.OpenStackCloudTimeout:
+        except sdk.exceptions.ResourceTimeout:
             module.exit_json(changed=changed)
 
     module.exit_json(changed=changed)
@@ -140,7 +161,8 @@ def main():
         snapshot_id=dict(default=None),
         volume=dict(default=None),
         state=dict(default='present', choices=['absent', 'present']),
-        scheduler_hints=dict(default=None, type='dict')
+        scheduler_hints=dict(default=None, type='dict'),
+        metadata=dict(default=None, type='dict')
     )
     module_kwargs = openstack_module_kwargs(
         mutually_exclusive=[

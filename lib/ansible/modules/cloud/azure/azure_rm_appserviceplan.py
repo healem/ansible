@@ -55,7 +55,7 @@ options:
     state:
       description:
         - Assert the state of the app service plan.
-        - Use 'present' to create or update an app service plan and 'absent' to delete it.
+        - Use C(present) to create or update an app service plan and C(absent) to delete it.
       default: present
       choices:
         - absent
@@ -66,32 +66,32 @@ extends_documentation_fragment:
     - azure_tags
 
 author:
-    - "Yunge Zhu(@yungezz)"
+    - "Yunge Zhu (@yungezz)"
 
 '''
 
 EXAMPLES = '''
     - name: Create a windows app service plan
       azure_rm_appserviceplan:
-        name: "windowsplan1"
-        resource_group: "appserviceplan_rg"
-        location: "eastus"
+        resource_group: myResourceGroup
+        name: myAppPlan
+        location: eastus
         sku: S1
 
     - name: Create a linux app service plan
       azure_rm_appserviceplan:
-        resource_group: "appserviceplan_rg"
-        name: "linuxplan1"
-        location: "eastus"
+        resource_group: myResourceGroup
+        name: myAppPlan
+        location: eastus
         sku: S1
         is_linux: true
         number_of_workers: 1
 
     - name: update sku of existing windows app service plan
       azure_rm_appserviceplan:
-        name: "windowsplan2"
-        resource_group: "appserviceplan_rg"
-        location: "eastus"
+        resource_group: myResourceGroup
+        name: myAppPlan
+        location: eastus
         sku: S2
 '''
 
@@ -101,7 +101,7 @@ azure_appserviceplan:
     returned: always
     type: dict
     sample: {
-            "id": "/subscriptions/<subs_id>/resourceGroups/ansiblewebapp1_plan/providers/Microsoft.Web/serverfarms/win_appplan11"
+            "id": "/subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/resourceGroups/myResourceGroup/providers/Microsoft.Web/serverfarms/myAppPlan"
     }
 '''
 
@@ -148,6 +148,30 @@ def get_sku_name(tier):
         return 'PREMIUMV2'
     else:
         return None
+
+
+def appserviceplan_to_dict(plan):
+    return dict(
+        id=plan.id,
+        name=plan.name,
+        kind=plan.kind,
+        location=plan.location,
+        reserved=plan.reserved,
+        is_linux=plan.reserved,
+        provisioning_state=plan.provisioning_state,
+        status=plan.status,
+        target_worker_count=plan.target_worker_count,
+        sku=dict(
+            name=plan.sku.name,
+            size=plan.sku.size,
+            tier=plan.sku.tier,
+            family=plan.sku.family,
+            capacity=plan.sku.capacity
+        ),
+        resource_group=plan.resource_group,
+        number_of_sites=plan.number_of_sites,
+        tags=plan.tags if plan.tags else None
+    )
 
 
 class AzureRMAppServicePlans(AzureRMModuleBase):
@@ -294,7 +318,7 @@ class AzureRMAppServicePlans(AzureRMModuleBase):
             self.log("Response : {0}".format(response))
             self.log("App Service Plan : {0} found".format(response.name))
 
-            return response.as_dict()
+            return appserviceplan_to_dict(response)
         except CloudError as ex:
             self.log("Didn't find app service plan {0} in resource group {1}".format(self.name, self.resource_group))
 
@@ -323,7 +347,7 @@ class AzureRMAppServicePlans(AzureRMModuleBase):
 
             self.log("Response : {0}".format(response))
 
-            return response.as_dict()
+            return appserviceplan_to_dict(response)
         except CloudError as ex:
             self.fail("Failed to create app service plan {0} in resource group {1}: {2}".format(self.name, self.resource_group, str(ex)))
 

@@ -5,13 +5,14 @@ import os
 import re
 import sys
 
-ASSERT_RE = re.compile(r'.*(?<![-:a-zA-Z#][ -])\bassert\b(?!:).*')
+ASSERT_RE = re.compile(r'^\s*assert[^a-z0-9_:]')
 
 
 def main():
     skip = set([
         'test/sanity/code-smell/%s' % os.path.basename(__file__),
         'lib/ansible/module_utils/compat/ipaddress.py',
+        'lib/ansible/module_utils/distro/_distro.py',
     ])
 
     for path in sys.argv[1:] or sys.stdin.read().splitlines():

@@ -24,6 +24,10 @@ from lib.ansible_util import (
     ansible_environment,
 )
 
+from lib.config import (
+    ShellConfig,
+)
+
 
 class ManageWindowsCI(object):
     """Manage access to a Windows instance provided by Ansible Core CI."""
@@ -45,8 +49,10 @@ class ManageWindowsCI(object):
         for ssh_option in sorted(ssh_options):
             self.ssh_args += ['-o', '%s=%s' % (ssh_option, ssh_options[ssh_option])]
 
-    def setup(self):
-        """Used in delegate_remote to setup the host, no action is required for Windows."""
+    def setup(self, python_version):
+        """Used in delegate_remote to setup the host, no action is required for Windows.
+        :type python_version: str
+        """
         pass
 
     def wait(self):
@@ -75,23 +81,56 @@ class ManageWindowsCI(object):
         raise ApplicationError('Timeout waiting for %s/%s instance %s.' %
                                (self.core_ci.platform, self.core_ci.version, self.core_ci.instance_id))
 
-    def ssh(self, command, options=None):
+    def download(self, remote, local):
+        """
+        :type remote: str
+        :type local: str
+        """
+        self.scp('%s@%s:%s' % (self.core_ci.connection.username, self.core_ci.connection.hostname, remote), local)
+
+    def upload(self, local, remote):
+        """
+        :type local: str
+        :type remote: str
+        """
+        self.scp(local, '%s@%s:%s' % (self.core_ci.connection.username, self.core_ci.connection.hostname, remote))
+
+    def ssh(self, command, options=None, force_pty=True):
         """
         :type command: str | list[str]
         :type options: list[str] | None
+        :type force_pty: bool
         """
         if not options:
             options = []
+        if force_pty:
+            options.append('-tt')
 
         if isinstance(command, list):
             command = ' '.join(pipes.quote(c) for c in command)
 
         run_command(self.core_ci.args,
-                    ['ssh', '-tt', '-q'] + self.ssh_args +
+                    ['ssh', '-q'] + self.ssh_args +
                     options +
                     ['-p', '22',
                      '%s@%s' % (self.core_ci.connection.username, self.core_ci.connection.hostname)] +
                     [command])
+
+    def scp(self, src, dst):
+        """
+        :type src: str
+        :type dst: str
+        """
+        for dummy in range(1, 10):
+            try:
+                run_command(self.core_ci.args,
+                            ['scp'] + self.ssh_args +
+                            ['-P', '22', '-q', '-r', src, dst])
+                return
+            except SubprocessError:
+                time.sleep(10)
+
+        raise ApplicationError('Failed transfer: %s -> %s' % (src, dst))
 
 
 class ManageNetworkCI(object):
@@ -167,10 +206,17 @@ class ManagePosixCI(object):
         elif self.core_ci.platform == 'rhel':
             self.become = ['sudo', '-in', 'bash', '-c']
 
-    def setup(self):
-        """Start instance and wait for it to become ready and respond to an ansible ping."""
+    def setup(self, python_version):
+        """Start instance and wait for it to become ready and respond to an ansible ping.
+        :type python_version: str
+        """
         self.wait()
-        self.configure()
+
+        if isinstance(self.core_ci.args, ShellConfig):
+            if self.core_ci.args.raw:
+                return
+
+        self.configure(python_version)
         self.upload_source()
 
     def wait(self):
@@ -185,10 +231,12 @@ class ManagePosixCI(object):
         raise ApplicationError('Timeout waiting for %s/%s instance %s.' %
                                (self.core_ci.platform, self.core_ci.version, self.core_ci.instance_id))
 
-    def configure(self):
-        """Configure remote host for testing."""
+    def configure(self, python_version):
+        """Configure remote host for testing.
+        :type python_version: str
+        """
         self.upload('test/runner/setup/remote.sh', '/tmp')
-        self.ssh('chmod +x /tmp/remote.sh && /tmp/remote.sh %s' % self.core_ci.platform)
+        self.ssh('chmod +x /tmp/remote.sh && /tmp/remote.sh %s %s' % (self.core_ci.platform, python_version))
 
     def upload_source(self):
         """Upload and extract source."""

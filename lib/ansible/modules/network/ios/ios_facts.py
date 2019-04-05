@@ -38,12 +38,12 @@ notes:
 options:
   gather_subset:
     description:
-      - When supplied, this argument will restrict the facts collected
-        to a given subset.  Possible values for this argument include
-        all, hardware, config, and interfaces.  Can specify a list of
-        values to include a larger subset.  Values can also be used
-        with an initial C(M(!)) to specify that a specific subset should
-        not be collected.
+      - When supplied, this argument restricts the facts collected
+         to a given subset.
+      - Possible values for this argument include
+         C(all), C(hardware), C(config), and C(interfaces).
+      - Specify a list of values to include a larger subset.
+      - Use a value with an initial C(!) to collect all facts except that subset.
     required: false
     default: '!config'
 """
@@ -74,23 +74,27 @@ ansible_net_gather_subset:
 ansible_net_model:
   description: The model name returned from the device
   returned: always
-  type: string
+  type: str
 ansible_net_serialnum:
   description: The serial number of the remote device
   returned: always
-  type: string
+  type: str
 ansible_net_version:
   description: The operating system version running on the remote device
   returned: always
-  type: string
+  type: str
+ansible_net_iostype:
+  description: The operating system type (IOS or IOS-XE) running on the remote device
+  returned: always
+  type: str
 ansible_net_hostname:
   description: The configured hostname of the device
   returned: always
-  type: string
+  type: str
 ansible_net_image:
   description: The image file the device is running
   returned: always
-  type: string
+  type: str
 ansible_net_stacked_models:
   description: The model names of each device in the stack
   returned: when multiple devices are configured in a stack
@@ -99,6 +103,14 @@ ansible_net_stacked_serialnums:
   description: The serial numbers of each device in the stack
   returned: when multiple devices are configured in a stack
   type: list
+ansible_net_api:
+  description: The name of the transport
+  returned: always
+  type: str
+ansible_net_python_version:
+  description: The Python version Ansible controller is using
+  returned: always
+  type: str
 
 # hardware
 ansible_net_filesystems:
@@ -122,7 +134,7 @@ ansible_net_memtotal_mb:
 ansible_net_config:
   description: The current active config from the device
   returned: when config is configured
-  type: string
+  type: str
 
 # interfaces
 ansible_net_all_ipv4_addresses:
@@ -138,14 +150,18 @@ ansible_net_interfaces:
   returned: when interfaces is configured
   type: dict
 ansible_net_neighbors:
-  description: The list of LLDP neighbors from the remote device
+  description:
+    - The list of CDP and LLDP neighbors from the remote device. If both,
+      CDP and LLDP neighbor data is present on one port, CDP is preferred.
   returned: when interfaces is configured
   type: dict
 """
+import platform
 import re
 
-from ansible.module_utils.network.ios.ios import run_commands
+from ansible.module_utils.network.ios.ios import run_commands, get_capabilities
 from ansible.module_utils.network.ios.ios import ios_argument_spec, check_args
+from ansible.module_utils.network.ios.ios import normalize_interface
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.six import iteritems
 from ansible.module_utils.six.moves import zip
@@ -173,34 +189,19 @@ class Default(FactsBase):
 
     def populate(self):
         super(Default, self).populate()
+        self.facts.update(self.platform_facts())
         data = self.responses[0]
         if data:
-            self.facts['version'] = self.parse_version(data)
+            self.facts['iostype'] = self.parse_iostype(data)
             self.facts['serialnum'] = self.parse_serialnum(data)
-            self.facts['model'] = self.parse_model(data)
-            self.facts['image'] = self.parse_image(data)
-            self.facts['hostname'] = self.parse_hostname(data)
             self.parse_stacks(data)
 
-    def parse_version(self, data):
-        match = re.search(r'Version (\S+?)(?:,\s|\s)', data)
+    def parse_iostype(self, data):
+        match = re.search(r'\S+(X86_64_LINUX_IOSD-UNIVERSALK9-M)(\S+)', data)
         if match:
-            return match.group(1)
-
-    def parse_hostname(self, data):
-        match = re.search(r'^(.+) uptime', data, re.M)
-        if match:
-            return match.group(1)
-
-    def parse_model(self, data):
-        match = re.search(r'^[Cc]isco (\S+).+bytes of .*memory', data, re.M)
-        if match:
-            return match.group(1)
-
-    def parse_image(self, data):
-        match = re.search(r'image file is "(.+)"', data)
-        if match:
-            return match.group(1)
+            return "IOS-XE"
+        else:
+            return "IOS"
 
     def parse_serialnum(self, data):
         match = re.search(r'board ID (\S+)', data)
@@ -215,6 +216,24 @@ class Default(FactsBase):
         match = re.findall(r'^System [Ss]erial [Nn]umber\s+: (\S+)', data, re.M)
         if match:
             self.facts['stacked_serialnums'] = match
+
+    def platform_facts(self):
+        platform_facts = {}
+
+        resp = get_capabilities(self.module)
+        device_info = resp['device_info']
+
+        platform_facts['system'] = device_info['network_os']
+
+        for item in ('model', 'image', 'version', 'platform', 'hostname'):
+            val = device_info.get('network_os_%s' % item)
+            if val:
+                platform_facts[item] = val
+
+        platform_facts['api'] = resp['network_api']
+        platform_facts['python_version'] = platform.python_version()
+
+        return platform_facts
 
 
 class Hardware(FactsBase):
@@ -270,6 +289,9 @@ class Config(FactsBase):
         super(Config, self).populate()
         data = self.responses[0]
         if data:
+            data = re.sub(
+                r'^Building configuration...\s+Current configuration : \d+ bytes\n',
+                '', data, flags=re.MULTILINE)
             self.facts['config'] = data
 
 
@@ -279,7 +301,8 @@ class Interfaces(FactsBase):
         'show interfaces',
         'show ip interface',
         'show ipv6 interface',
-        'show lldp'
+        'show lldp',
+        'show cdp'
     ]
 
     def populate(self):
@@ -287,6 +310,7 @@ class Interfaces(FactsBase):
 
         self.facts['all_ipv4_addresses'] = list()
         self.facts['all_ipv6_addresses'] = list()
+        self.facts['neighbors'] = {}
 
         data = self.responses[0]
         if data:
@@ -309,7 +333,15 @@ class Interfaces(FactsBase):
         if data and not any(err in data for err in lldp_errs):
             neighbors = self.run(['show lldp neighbors detail'])
             if neighbors:
-                self.facts['neighbors'] = self.parse_neighbors(neighbors[0])
+                self.facts['neighbors'].update(self.parse_neighbors(neighbors[0]))
+
+        data = self.responses[4]
+        cdp_errs = ['CDP is not enabled']
+
+        if data and not any(err in data for err in cdp_errs):
+            cdp_neighbors = self.run(['show cdp neighbors detail'])
+            if cdp_neighbors:
+                self.facts['neighbors'].update(self.parse_cdp_neighbors(cdp_neighbors[0]))
 
     def populate_interfaces(self, interfaces):
         facts = dict()
@@ -370,11 +402,31 @@ class Interfaces(FactsBase):
             if entry == '':
                 continue
             intf = self.parse_lldp_intf(entry)
+            if intf is None:
+                return facts
+            intf = normalize_interface(intf)
             if intf not in facts:
                 facts[intf] = list()
             fact = dict()
             fact['host'] = self.parse_lldp_host(entry)
             fact['port'] = self.parse_lldp_port(entry)
+            facts[intf].append(fact)
+        return facts
+
+    def parse_cdp_neighbors(self, neighbors):
+        facts = dict()
+        for entry in neighbors.split('-------------------------'):
+            if entry == '':
+                continue
+            intf_port = self.parse_cdp_intf_port(entry)
+            if intf_port is None:
+                return facts
+            intf, port = intf_port
+            if intf not in facts:
+                facts[intf] = list()
+            fact = dict()
+            fact['host'] = self.parse_cdp_host(entry)
+            fact['port'] = port
             facts[intf].append(fact)
         return facts
 
@@ -435,7 +487,7 @@ class Interfaces(FactsBase):
             return match.group(1)
 
     def parse_lineprotocol(self, data):
-        match = re.search(r'line protocol is (.+)$', data, re.M)
+        match = re.search(r'line protocol is (\S+)\s*$', data, re.M)
         if match:
             return match.group(1)
 
@@ -459,6 +511,16 @@ class Interfaces(FactsBase):
         if match:
             return match.group(1)
 
+    def parse_cdp_intf_port(self, data):
+        match = re.search(r'^Interface: (.+),  Port ID \(outgoing port\): (.+)$', data, re.M)
+        if match:
+            return match.group(1), match.group(2)
+
+    def parse_cdp_host(self, data):
+        match = re.search(r'^Device ID: (.+)$', data, re.M)
+        if match:
+            return match.group(1)
+
 
 FACT_SUBSETS = dict(
     default=Default,
@@ -469,7 +531,6 @@ FACT_SUBSETS = dict(
 
 VALID_SUBSETS = frozenset(FACT_SUBSETS.keys())
 
-global warnings
 warnings = list()
 
 

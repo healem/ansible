@@ -65,7 +65,7 @@ def command_sanity(args):
         raise AllTargetsSkipped()
 
     if args.delegate:
-        raise Delegate(require=changes)
+        raise Delegate(require=changes, exclude=args.exclude)
 
     install_command_requirements(args)
 
@@ -255,6 +255,7 @@ class SanityCodeSmellTest(SanityTest):
             files = self.config.get('files')
             always = self.config.get('always')
             text = self.config.get('text')
+            ignore_changes = self.config.get('ignore_changes')
 
             if output == 'path-line-column-message':
                 pattern = '^(?P<path>[^:]*):(?P<line>[0-9]+):(?P<column>[0-9]+): (?P<message>.*)$'
@@ -263,7 +264,11 @@ class SanityCodeSmellTest(SanityTest):
             else:
                 pattern = ApplicationError('Unsupported output type: %s' % output)
 
-            paths = sorted(i.path for i in targets.include)
+            if ignore_changes:
+                paths = sorted(i.path for i in targets.targets)
+                always = False
+            else:
+                paths = sorted(i.path for i in targets.include)
 
             if always:
                 paths = []

@@ -36,8 +36,14 @@ options:
      - This is required if C(uuid) parameter is not supplied.
    uuid:
      description:
-     - UUID of the instance to manage if known, this is VMware's BIOS UUID.
+     - UUID of the instance to manage if known, this is VMware's BIOS UUID by default.
      - This is required if C(name) parameter is not supplied.
+   use_instance_uuid:
+     description:
+     - Whether to use the VMWare instance UUID rather than the BIOS UUID.
+     default: no
+     type: bool
+     version_added: '2.8'
    name_match:
      description:
      - If multiple virtual machines matching the name, use the first or last found.
@@ -74,6 +80,7 @@ vm_boot_facts:
         "current_boot_retry_enabled": true,
         "current_enter_bios_setup": true,
         "current_boot_firmware": "bios",
+        "current_secure_boot_enabled": false,
     }
 """
 
@@ -92,13 +99,17 @@ class VmBootFactsManager(PyVmomi):
         super(VmBootFactsManager, self).__init__(module)
         self.name = self.params['name']
         self.uuid = self.params['uuid']
+        self.use_instance_uuid = self.params['use_instance_uuid']
         self.vm = None
 
     def _get_vm(self):
         vms = []
 
         if self.uuid:
-            vm_obj = find_vm_by_id(self.content, vm_id=self.uuid, vm_id_type="uuid")
+            if self.use_instance_uuid:
+                vm_obj = find_vm_by_id(self.content, vm_id=self.uuid, vm_id_type="use_instance_uuid")
+            else:
+                vm_obj = find_vm_by_id(self.content, vm_id=self.uuid, vm_id_type="uuid")
             if vm_obj is None:
                 self.module.fail_json(msg="Failed to find the virtual machine with UUID : %s" % self.uuid)
             vms = [vm_obj]
@@ -143,6 +154,7 @@ class VmBootFactsManager(PyVmomi):
                 current_boot_retry_enabled=self.vm.config.bootOptions.bootRetryEnabled,
                 current_boot_retry_delay=self.vm.config.bootOptions.bootRetryDelay,
                 current_boot_firmware=self.vm.config.firmware,
+                current_secure_boot_enabled=self.vm.config.bootOptions.efiSecureBootEnabled
             )
 
         self.module.exit_json(changed=False, vm_boot_facts=results)
@@ -153,6 +165,7 @@ def main():
     argument_spec.update(
         name=dict(type='str'),
         uuid=dict(type='str'),
+        use_instance_uuid=dict(type='bool', default=False),
         name_match=dict(
             choices=['first', 'last'],
             default='first'

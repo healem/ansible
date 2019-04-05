@@ -41,6 +41,7 @@ options:
             - custom_verizon
             - standard_akamai
             - standard_chinacdn
+            - standard_microsoft
     state:
         description:
             - Assert the state of the CDN profile. Use C(present) to create or update a CDN profile and C(absent) to delete it.
@@ -54,22 +55,22 @@ extends_documentation_fragment:
     - azure_tags
 
 author:
-    - "Hai Cao <t-haicao@microsoft.com>"
-    - "Yunge Zhu <yungez@microsoft.com>"
+    - "Hai Cao (@caohai) <t-haicao@microsoft.com>"
+    - "Yunge Zhu (@yungezz) <yungez@microsoft.com>"
 '''
 
 EXAMPLES = '''
     - name: Create a CDN profile
       azure_rm_cdnprofile:
-          resource_group: Testing
+          resource_group: myResourceGroup
           name: cdntest
-          sku: Standard_Akamai
+          sku: standard_akamai
           tags:
               testing: testing
 
     - name: Delete the CDN profile
       azure_rm_cdnprofile:
-        resource_group: Testing
+        resource_group: myResourceGroup
         name: cdntest
         state: absent
 '''
@@ -79,7 +80,7 @@ id:
     returned: always
     type: dict
     example:
-            id: /subscriptions/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX/resourcegroups/cdntest/providers/Microsoft.Cdn/profiles/cdntest
+            id: /subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/resourcegroups/cdntest/providers/Microsoft.Cdn/profiles/cdntest
 '''
 from ansible.module_utils.azure_rm_common import AzureRMModuleBase
 
@@ -126,7 +127,7 @@ class AzureRMCdnprofile(AzureRMModuleBase):
             ),
             sku=dict(
                 type='str',
-                choices=['standard_verizon', 'premium_verizon', 'custom_verizon', 'standard_akamai', 'standard_chinacdn']
+                choices=['standard_verizon', 'premium_verizon', 'custom_verizon', 'standard_akamai', 'standard_chinacdn', 'standard_microsoft']
             )
         )
 

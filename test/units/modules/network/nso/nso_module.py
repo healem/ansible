@@ -20,8 +20,8 @@ from __future__ import (absolute_import, division, print_function)
 import os
 import json
 
-from ansible.compat.tests import unittest
-from ansible.compat.tests.mock import patch
+from units.compat import unittest
+from units.compat.mock import patch
 from ansible.module_utils import basic
 from ansible.module_utils._text import to_bytes
 
@@ -55,7 +55,7 @@ class MockResponse(object):
         return self.body
 
 
-def mock_call(calls, url, timeout, data=None, headers=None, method=None):
+def mock_call(calls, url, timeout, validate_certs, data=None, headers=None, method=None):
     if len(calls) == 0:
         raise ValueError('no call mock for method {0}({1})'.format(
             url, data))

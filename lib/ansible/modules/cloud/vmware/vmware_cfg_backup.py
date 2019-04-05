@@ -75,7 +75,7 @@ RETURN = '''
 dest_file:
     description: The full path of where the file holding the ESXi configurations was stored
     returned: changed
-    type: string
+    type: str
     sample: /tmp/configBundle-esxi.host.domain.tgz
 '''
 
@@ -114,7 +114,7 @@ class VMwareConfigurationBackup(PyVmomi):
                 self.module.fail_json(msg="Failed to find ESXi %s" % self.esxi_hostname)
 
         host_system = get_all_objs(self.content, [vim.HostSystem])
-        return host_system.keys()[0]
+        return list(host_system)[0]
 
     def process_state(self):
         if self.state == 'saved':
@@ -128,7 +128,7 @@ class VMwareConfigurationBackup(PyVmomi):
 
     def load_configuration(self):
         if not os.path.isfile(self.src):
-            self.module.fail_json(msg="Source file {} does not exist".format(self.src))
+            self.module.fail_json(msg="Source file {0} does not exist".format(self.src))
 
         url = self.host.configManager.firmwareSystem.QueryFirmwareConfigUploadURL()
         url = url.replace('*', self.host.name)

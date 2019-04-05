@@ -51,6 +51,7 @@ options:
             - Always create new task definition
         required: False
         version_added: 2.5
+        type: bool
     containers:
         description:
             - A list of containers definitions
@@ -153,7 +154,7 @@ EXAMPLES = '''
       - containerPort: 8080
         hostPort:      8080
       cpu: 512
-      memory: 1GB
+      memory: 1024
     state: present
 
 - name: Create task definition
@@ -168,7 +169,7 @@ EXAMPLES = '''
         hostPort:      8080
     launch_type: FARGATE
     cpu: 512
-    memory: 1GB
+    memory: 1024
     state: present
     network_mode: awsvpc
 '''

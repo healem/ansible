@@ -18,7 +18,7 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 DOCUMENTATION = """
 ---
 module: openvswitch_db
-author: "Mark Hamilton (mhamilton@vmware.com)"
+author: "Mark Hamilton (@markleehamilton) <mhamilton@vmware.com>"
 version_added: 2.0
 short_description: Configure open vswitch database.
 requirements: [ "ovs-vsctl >= 2.3.3" ]
@@ -170,7 +170,7 @@ def map_config_to_obj(module):
             obj['key'] = module.params['key']
             obj['value'] = col_value_to_dict[module.params['key']]
     else:
-            obj['value'] = str(col_value.strip())
+        obj['value'] = str(col_value.strip())
 
     return obj
 
