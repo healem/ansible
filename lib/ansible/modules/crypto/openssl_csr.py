@@ -632,7 +632,7 @@ class CertificateSigningRequestPyOpenSSL(CertificateSigningRequestBase):
                 return False
 
         try:
-            csr = crypto_utils.load_certificate_request(self.path)
+            csr = crypto_utils.load_certificate_request(self.path, backend='pyopenssl')
         except Exception as dummy:
             return False
 
@@ -649,7 +649,7 @@ class CertificateSigningRequestCryptography(CertificateSigningRequestBase):
         csr = cryptography.x509.CertificateSigningRequestBuilder()
         try:
             csr = csr.subject_name(cryptography.x509.Name([
-                cryptography.x509.NameAttribute(crypto_utils.cryptography_get_name_oid(entry[0]), to_text(entry[1])) for entry in self.subject
+                cryptography.x509.NameAttribute(crypto_utils.cryptography_name_to_oid(entry[0]), to_text(entry[1])) for entry in self.subject
             ]))
         except ValueError as e:
             raise CertificateSigningRequestError(e)
@@ -664,7 +664,7 @@ class CertificateSigningRequestCryptography(CertificateSigningRequestBase):
             csr = csr.add_extension(cryptography.x509.KeyUsage(**params), critical=self.keyUsage_critical)
 
         if self.extendedKeyUsage:
-            usages = [crypto_utils.cryptography_get_ext_keyusage(usage) for usage in self.extendedKeyUsage]
+            usages = [crypto_utils.cryptography_name_to_oid(usage) for usage in self.extendedKeyUsage]
             csr = csr.add_extension(cryptography.x509.ExtendedKeyUsage(usages), critical=self.extendedKeyUsage_critical)
 
         if self.basicConstraints:
@@ -713,7 +713,7 @@ class CertificateSigningRequestCryptography(CertificateSigningRequestBase):
 
     def _check_csr(self):
         def _check_subject(csr):
-            subject = [(crypto_utils.cryptography_get_name_oid(entry[0]), entry[1]) for entry in self.subject]
+            subject = [(crypto_utils.cryptography_name_to_oid(entry[0]), entry[1]) for entry in self.subject]
             current_subject = [(sub.oid, sub.value) for sub in csr.subject]
             return set(subject) == set(current_subject)
 
@@ -751,7 +751,7 @@ class CertificateSigningRequestCryptography(CertificateSigningRequestBase):
         def _check_extenededKeyUsage(extensions):
             current_usages_ext = _find_extension(extensions, cryptography.x509.ExtendedKeyUsage)
             current_usages = [str(usage) for usage in current_usages_ext.value] if current_usages_ext else []
-            usages = [str(crypto_utils.cryptography_get_ext_keyusage(usage)) for usage in self.extendedKeyUsage] if self.extendedKeyUsage else []
+            usages = [str(crypto_utils.cryptography_name_to_oid(usage)) for usage in self.extendedKeyUsage] if self.extendedKeyUsage else []
             if set(current_usages) != set(usages):
                 return False
             if usages:
@@ -819,8 +819,7 @@ class CertificateSigningRequestCryptography(CertificateSigningRequestBase):
             return key_a == key_b
 
         try:
-            with open(self.path, 'rb') as f:
-                csr = cryptography.x509.load_pem_x509_csr(f.read(), self.cryptography_backend)
+            csr = crypto_utils.load_certificate_request(self.path, backend='cryptography')
         except Exception as dummy:
             return False
 
@@ -881,8 +880,8 @@ def main():
 
         # Success?
         if backend == 'auto':
-            module.fail_json(msg=('Can detect none of the Python libraries '
-                                  'cryptography (>= {0}) and pyOpenSSL (>= {1})').format(
+            module.fail_json(msg=("Can't detect any of the required Python libraries "
+                                  "cryptography (>= {0}) or PyOpenSSL (>= {1})").format(
                                       MINIMAL_CRYPTOGRAPHY_VERSION,
                                       MINIMAL_PYOPENSSL_VERSION))
     try:

@@ -282,7 +282,7 @@ def get_relative_time_option(input_string, input_name):
     if result.startswith("+") or result.startswith("-"):
         return crypto_utils.convert_relative_to_datetime(result)
     if result is None:
-        raise crypto_utils.CertificateError(
+        raise crypto_utils.OpenSSLObjectError(
             'The timespec "%s" for %s is not valid' %
             input_string, input_name)
     for date_fmt in ['%Y%m%d%H%M%SZ', '%Y%m%d%H%MZ', '%Y%m%d%H%M%S%z', '%Y%m%d%H%M%z']:
@@ -293,7 +293,7 @@ def get_relative_time_option(input_string, input_name):
             pass
 
     if not isinstance(result, datetime.datetime):
-        raise crypto_utils.CertificateError(
+        raise crypto_utils.OpenSSLObjectError(
             'The time spec "%s" for %s is invalid' %
             (input_string, input_name)
         )
@@ -425,18 +425,18 @@ class CertificateInfoCryptography(CertificateInfo):
         super(CertificateInfoCryptography, self).__init__(module, 'cryptography')
 
     def _get_signature_algorithm(self):
-        return crypto_utils.crpytography_oid_to_name(self.cert.signature_algorithm_oid)
+        return crypto_utils.cryptography_oid_to_name(self.cert.signature_algorithm_oid)
 
     def _get_subject(self):
         result = dict()
         for attribute in self.cert.subject:
-            result[crypto_utils.crpytography_oid_to_name(attribute.oid)] = attribute.value
+            result[crypto_utils.cryptography_oid_to_name(attribute.oid)] = attribute.value
         return result
 
     def _get_issuer(self):
         result = dict()
         for attribute in self.cert.issuer:
-            result[crypto_utils.crpytography_oid_to_name(attribute.oid)] = attribute.value
+            result[crypto_utils.cryptography_oid_to_name(attribute.oid)] = attribute.value
         return result
 
     def _get_version(self):
@@ -488,7 +488,7 @@ class CertificateInfoCryptography(CertificateInfo):
         try:
             ext_keyusage_ext = self.cert.extensions.get_extension_for_class(x509.ExtendedKeyUsage)
             return sorted([
-                crypto_utils.crpytography_oid_to_name(eku) for eku in ext_keyusage_ext.value
+                crypto_utils.cryptography_oid_to_name(eku) for eku in ext_keyusage_ext.value
             ]), ext_keyusage_ext.critical
         except cryptography.x509.ExtensionNotFound:
             return None, False
@@ -637,8 +637,19 @@ class CertificateInfoPyOpenSSL(CertificateInfo):
                 self.cert.get_pubkey()
             )
         except AttributeError:
-            self.module.warn('Your pyOpenSSL version does not support dumping public keys. '
-                             'Please upgrade to version 16.0 or newer, or use the cryptography backend.')
+            try:
+                # pyOpenSSL < 16.0:
+                bio = crypto._new_mem_buf()
+                if binary:
+                    rc = crypto._lib.i2d_PUBKEY_bio(bio, self.cert.get_pubkey()._pkey)
+                else:
+                    rc = crypto._lib.PEM_write_bio_PUBKEY(bio, self.cert.get_pubkey()._pkey)
+                if rc != 1:
+                    crypto._raise_current_error()
+                return crypto._bio_to_string(bio)
+            except AttributeError:
+                self.module.warn('Your pyOpenSSL version does not support dumping public keys. '
+                                 'Please upgrade to version 16.0 or newer, or use the cryptography backend.')
 
     def _get_serial_number(self):
         return self.cert.get_serial_number()

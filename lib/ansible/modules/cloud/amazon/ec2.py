@@ -1070,8 +1070,9 @@ def create_instances(module, ec2, vpc, override_count=None):
                       'placement': zone,
                       'instance_type': instance_type,
                       'kernel_id': kernel,
-                      'ramdisk_id': ramdisk,
-                      'user_data': to_bytes(user_data, errors='surrogate_or_strict')}
+                      'ramdisk_id': ramdisk}
+            if user_data is not None:
+                params['user_data'] = to_bytes(user_data, errors='surrogate_or_strict')
 
             if ebs_optimized:
                 params['ebs_optimized'] = ebs_optimized
@@ -1641,7 +1642,7 @@ def main():
             state=dict(default='present', choices=['present', 'absent', 'running', 'restarted', 'stopped']),
             instance_initiated_shutdown_behavior=dict(default='stop', choices=['stop', 'terminate']),
             exact_count=dict(type='int', default=None),
-            count_tag=dict(),
+            count_tag=dict(type='raw'),
             volumes=dict(type='list'),
             ebs_optimized=dict(type='bool', default=False),
             tenancy=dict(default='default', choices=['default', 'dedicated']),
